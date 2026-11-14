@@ -1,7 +1,7 @@
 (* Author: Basil Fürer *)
 
 theory Lexer_Command
-  imports TIGER_Pattern TIGER_Rules
+  imports TIGER_Pattern TIGER_Rules TIGER_Lexer.TIGER_Utf8_Lexer
   keywords "lexer" :: thy_decl
     and "modes" "start" "exclusive" "final" "after" "newline" "rules"
     and "skip" "error" "push" "pop" "\<Rightarrow>"
@@ -55,7 +55,15 @@ text \<open>The command @{command lexer} defines a lexer spec from a flex-like s
   @{thm [source] char_lexer_iff_lexes}. A class of \<open>L\<close> that reaches above \<open>0xFF\<close> is
   an error there (the byte instance of JFlex's \<open>%8bit\<close> \<^cite>\<open>\<open>``Input Character sets\<close> in "klein2023-jflex-manual"\<close>), unless it reaches the end of the
   codepoints: such a class is a complement such as \<open>_\<close> or \<open>[^\<dots>]\<close>, and on bytes it is
-  its part below \<open>0x100\<close>.\<close>
+  its part below \<open>0x100\<close>.
+
+  The option \<open>(utf8)\<close> builds the lexer on the UTF-8 bytes of the input,
+  \<^const>\<open>char_lexer\<close> on the tables of \<^const>\<open>utf8_spec\<close> \<open>L.spec\<close>, which decodes
+  and lexes in one pass. Columns count codepoints and offsets count bytes.
+  \<open>L_lex.correct\<close> is @{thm [source] utf8_lexer_iff_lexes}: on a valid input it is the
+  judgment on the codepoints, encoded. \<open>L_lex.consumed\<close> is
+  @{thm [source] utf8_lexer_consumed}: on any input, what the lexer consumes is valid
+  UTF-8. The class of \<open>newline\<close> must be ASCII there (a newline is one byte).\<close>
 
 ML_file \<open>lexer_command.ML\<close>
 ML_file \<open>lexer_tables.ML\<close>

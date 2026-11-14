@@ -76,7 +76,7 @@ text \<open>
 
 text \<open>
   \<^rail>\<open>
-    option: 'sketch' | 'codepoints' | 'char' | 'no_check'
+    option: 'sketch' | 'codepoints' | 'char' | 'utf8' | 'no_check'
   \<close>
 
   \<^descr> \descform{\<^verbatim>\<open>sketch\<close>} stops after the specification: generates no tables
@@ -90,6 +90,14 @@ text \<open>
   means its part below \<open>0x100\<close>. A class that reaches above \<open>0xFF\<close> is then an error,
   unless it reaches the last codepoint: \<^verbatim>\<open>_\<close> and \<open>[^\<dots>]\<close> mean the remaining
   bytes.
+
+  \<^descr> \descform{\<^verbatim>\<open>utf8\<close>} builds a lexer on the bytes of UTF-8 that decodes and
+  lexes in one pass: \<^const>\<open>char_lexer\<close> on the tables of \<^const>\<open>utf8_spec\<close>
+  \<open>L.spec\<close>, whose regexes match the encodings of what the rules of \<open>L\<close> match on
+  codepoints. Token texts and trivia are bytes, offsets count bytes and columns count
+  codepoints. The newline class must stay below \<open>0x80\<close>; one that leaves ASCII is an
+  error at \<^theory_text>\<open>newline c\<close>. The residue starts at or before the first
+  malformed sequence.
 
   \<^descr> \descform{\<^verbatim>\<open>no_check\<close>} drops the warning at rules that can never match
   (Section~\ref{sec:lexer-defined}).
@@ -245,8 +253,9 @@ text \<open>
   matches, and the winning rule is the first that matches it. Its action, which Verbatim
   does not have, gives the token class and the new stack.
 
-  The judgment \<open>lexes sp is_newline st q s l r st\<^sub>f\<close> chains steps from the stack \<open>st\<close> and
-  the position \<open>q\<close>, and relates the input \<open>s\<close> to its tokens with their spans and trivia
+  The judgment \<open>lexes sp is_newline is_col st q s l r st\<^sub>f\<close> chains steps from the stack
+  \<open>st\<close> and the position \<open>q\<close> (\<open>is_newline\<close> ends a line and \<open>is_col\<close> says which characters
+  count a column), and relates the input \<open>s\<close> to its tokens with their spans and trivia
   \<open>l\<close>, the residue \<open>r\<close> where no step applies, and the stack \<open>st\<^sub>f\<close> it stops in. A lexical
   error is not a failure but a nonempty residue, and an unterminated comment is an empty
   residue in a mode that is not final. Each step consumes a nonempty lexeme, so whatever
@@ -281,10 +290,15 @@ text \<open>
   \<^descr> \<open>L_lex.correct\<close>: on an input of codepoints, \<open>L_lex\<close> computes the judgment,
   @{text [display] \<open>(\<forall>c \<in> set w. c \<le> 0x10FFFF) \<Longrightarrow>
   L_lex w = (l, r, st\<^sub>f) \<longleftrightarrow>
-    symbolic.lexes in_cls L.spec L.is_newline [L.start] q\<^sub>0 w l r st\<^sub>f\<close>}
+    symbolic.lexes in_cls L.spec L.is_newline (\<lambda>_. True) [L.start] q\<^sub>0 w l r st\<^sub>f\<close>}
   the instance of @{thm [source] cp_lexer_iff_lexes_in_range} for \<open>L.spec\<close>. With the
   option \<open>(\<^verbatim>\<open>char\<close>)\<close> it is @{thm [source] char_lexer_iff_lexes}, the judgment of
-  \<^const>\<open>char_spec\<close> \<open>L.spec\<close> on bytes, with no condition on the input.
+  \<^const>\<open>char_spec\<close> \<open>L.spec\<close> on bytes, with no condition on the input. With
+  \<open>(\<^verbatim>\<open>utf8\<close>)\<close> it is @{thm [source] utf8_lexer_iff_lexes}: on the bytes \<open>s\<close> of
+  valid UTF-8 with \<^term>\<open>utf8 s cs\<close>, \<open>L_lex\<close> gives the encoding
+  (\<^const>\<open>encode_lexed\<close>) of the judgment of \<open>L.spec\<close> on the codepoints \<open>cs\<close>.
+  On any bytes, \<open>L_lex.consumed\<close> (@{thm [source] utf8_lexer_consumed}) says that
+  the consumed prefix is valid UTF-8 and lexes alone as it does in front of the residue.
 \<close>
 
 text \<open>

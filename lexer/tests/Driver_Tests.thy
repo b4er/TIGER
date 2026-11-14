@@ -47,13 +47,14 @@ definition \<open>is_lf c \<longleftrightarrow> c = CHR 0x0A\<close>
 
 definition \<open>start = \<lparr>line = 0, col = 0, off = 0\<rparr>\<close>
 
-definition \<open>comment_lex st = char_lexer comment_tables id (list_spec comment_rules) is_lf st start\<close>
+definition \<open>comment_lex st =
+  char_lexer comment_tables id (list_spec comment_rules) is_lf (\<lambda>_. True) st start\<close>
 
 text \<open>The lexer on the tables is the driver of the spec:\<close>
 
 theorem comment_lex_iff_lexes:
   \<open>comment_lex st s = (l, r, st\<^sub>f) \<longleftrightarrow>
-    char_cls.lexes (list_spec comment_rules) is_lf st start s l r st\<^sub>f\<close>
+    char_cls.lexes (list_spec comment_rules) is_lf (\<lambda>_. True) st start s l r st\<^sub>f\<close>
   by (simp add: comment_lex_def comment_tables_def char_lexer_list_iff_lexes)
 
 text \<open>A nested comment across a newline is the trailing trivia of \<open>ab\<close>. The span of

@@ -195,7 +195,7 @@ fun lexer opts (spec: spec) lthy =
           (Binding.name_of name, Binding.pos_of name) positions lthy
       else lthy;
     val tokT = Syntax.read_typ lthy (Syntax.implode_input (#tok spec));
-    val chT = if exists (fn (n, _) => n = "char") opts then \<^typ>\<open>char\<close> else \<^typ>\<open>nat\<close>;
+    val chT = if exists (fn (n, _) => n = "char" orelse n = "utf8") opts then \<^typ>\<open>char\<close> else \<^typ>\<open>nat\<close>;
     val tokenT =
       Term.typ_subst_atomic [(\<^typ>\<open>'k\<close>, tokT), (\<^typ>\<open>'c\<close>, chT)]
         \<^typ>\<open>('k, 'c) lex_token\<close>;

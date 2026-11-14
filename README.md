@@ -22,16 +22,18 @@ every lexer a terminal provider of the grammar command (`grammar G = tokens of L
 ```
 TIGER_Token ─┬─ TIGER_Grammar_Model ── TIGER_Grammar ─┬─ TIGER_Bridge ─┬─ TIGER_Lexer_Parser
              └─ TIGER_Lexer ──────────────────────────┘                └─ TIGER_Bridge_Tests
+TIGER_UTF8 ──── TIGER_Lexer
 ```
 
 | session | directory | contents |
 |---|---|---|
 | `TIGER_Token` | `token/` | source spans and the token record |
+| `TIGER_UTF8` | `utf8/` | UTF-8 on its own: the encoding, the decoder, prefix-freeness, codepoint intervals as byte intervals (`utf8_ranges`) |
 | `TIGER_Grammar_Model` | `grammar/model/` | the model `Indentation_Sensitive.thy`, `Grammar_Base.thy` |
 | `TIGER_Grammar` | `grammar/`, `grammar/lr/` | the LR tables, drivers and static condition (`lr/`, proofs only); the `grammar` and `parser` commands, their ML, the backend |
 | `TIGER_Grammar_Tests` | `grammar/tests/` | one theory per feature, a few minutes in batch |
 | `TIGER_Grammar_Tests_Slow` | `grammar/tests/slow/` | recovery and repair (`Recover_Tests`, `Repair_Tests`, `Repair_Code_Tests`) |
-| `TIGER_Lexer` | `lexer/`, `lexer/core/` | regexes, the lexer spec, the table generator and the runner (`core/`); the `pattern`, `lexer` and `lexer_check` commands (manual, Sect. 2) |
+| `TIGER_Lexer` | `lexer/`, `lexer/core/` | regexes, the lexer spec, the table generator and the runner, the UTF-8 instance (`core/`); the `pattern`, `lexer` and `lexer_check` commands (manual, Sect. 2) |
 | `TIGER_Lexer_Tests` | `lexer/tests/` | the lexer's tests; `Stress_Lexer_Tests` combines modes, holes, the hook and error rules in one toy language |
 | `TIGER_Bridge` | `bridge/` | `TIGER_Bridge.thy`: each `lexer` registers its token type and literal rules for `tokens of` |
 | `TIGER_Bridge_Tests` | `bridge/tests/` | a lexer and a grammar on its tokens, lexed then parsed (also needs `TIGER_Grammar_Tests` for `parser_check`) |

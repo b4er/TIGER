@@ -390,7 +390,8 @@ text \<open>The lexer on bytes takes the tables of all modes as one array and an
 
 definition char_lexer ::
   \<open>char_tables iarray \<Rightarrow> ('m \<Rightarrow> nat) \<Rightarrow> ('k, char cls, char, 'm) lexer_spec \<Rightarrow>
-    (char \<Rightarrow> bool) \<Rightarrow> 'm list \<Rightarrow> pos \<Rightarrow> char list \<Rightarrow> ('k, char) lexed \<times> char list \<times> 'm list\<close>
+    (char \<Rightarrow> bool) \<Rightarrow> (char \<Rightarrow> bool) \<Rightarrow> 'm list \<Rightarrow> pos \<Rightarrow> char list \<Rightarrow>
+    ('k, char) lexed \<times> char list \<times> 'm list\<close>
 where
   \<open>char_lexer TT ix =
     drive (\<lambda>m. if ix m < IArray.length TT then run_char (TT !! ix m) else (\<lambda>_. None))\<close>
@@ -417,8 +418,8 @@ text \<open>If the index of each mode holds its tables, the lexer on bytes is
 
 theorem char_lexer_iff_lexes:
   assumes \<open>\<forall>m. ix m < IArray.length TT \<and> TT !! ix m = char_tables (sp m)\<close>
-  shows \<open>char_lexer TT ix sp is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
-    char_cls.lexes sp is_newline st q s l r st\<^sub>f\<close>
+  shows \<open>char_lexer TT ix sp is_newline is_col st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    char_cls.lexes sp is_newline is_col st q s l r st\<^sub>f\<close>
   unfolding char_lexer_def
   by (rule char_cls.drive_iff_lexes[OF mode_runner_char_lexer]) (use assms in auto)
 
@@ -430,8 +431,8 @@ where
   \<open>char_lexer_tables sps = IArray (map char_tables sps)\<close>
 
 theorem char_lexer_list_iff_lexes:
-  \<open>char_lexer (char_lexer_tables sps) id (list_spec sps) is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
-    char_cls.lexes (list_spec sps) is_newline st q s l r st\<^sub>f\<close>
+  \<open>char_lexer (char_lexer_tables sps) id (list_spec sps) is_newline is_col st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    char_cls.lexes (list_spec sps) is_newline is_col st q s l r st\<^sub>f\<close>
   unfolding char_lexer_def
   by (rule char_cls.drive_iff_lexes[OF mode_runner_char_lexer])
     (simp add: char_lexer_tables_def list_spec_def)

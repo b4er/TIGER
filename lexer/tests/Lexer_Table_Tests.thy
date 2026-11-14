@@ -57,8 +57,8 @@ lemma cmt_lex_ab:
   by eval
 
 lemma
-  \<open>symbolic.lexes in_cls cmt.spec cmt.is_newline [cmt.start] \<lparr>line = 0, col = 0, off = 0\<rparr>
-    [0x61, 0x62]
+  \<open>symbolic.lexes in_cls cmt.spec cmt.is_newline (\<lambda>_. True) [cmt.start]
+    \<lparr>line = 0, col = 0, off = 0\<rparr> [0x61, 0x62]
     (Lexed [] [\<lparr>tok = Word, span = \<lparr>s_line = 0, s_col = 0, s_off = 0, s_len = 2,
       s_txt = [0x61, 0x62]\<rparr>, trivia = []\<rparr>]) [] [Code]\<close>
   by (rule cmt_lex.correct[THEN iffD1]) (simp_all add: cmt_lex_ab)
@@ -180,8 +180,8 @@ ML_command \<open>
     "the class \"alpha\" = [0x3B1-0x3C9] reaches above";
   lexer_fails \<^context> "(char) lambda :: \<open>ctok\<close> rules \"\<lambda>\" \<Rightarrow> Word"
     "= [0x3BB] reaches above 0xFF";
-  lexer_fails \<^context> "(utf8) e :: \<open>ctok\<close> rules \"x\" \<Rightarrow> Word"
-    "unknown option \"utf8\""
+  lexer_fails \<^context> "(utf16) e :: \<open>ctok\<close> rules \"x\" \<Rightarrow> Word"
+    "unknown option \"utf16\""
 \<close>
 
 text \<open>With \<open>(sketch)\<close>, the command defines the spec only:\<close>

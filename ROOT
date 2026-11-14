@@ -7,6 +7,15 @@ session TIGER_Token in "token" = HOL +
   document_files (in "../document")
     "root.bib"
 
+session TIGER_UTF8 in "utf8" = HOL +
+  description "UTF-8: the encoding, the decoder, prefix-freeness and codepoint intervals as
+    sequences of byte intervals."
+  options [document = false, timeout = 300]
+  sessions "HOL-Library"
+  theories TIGER_UTF8
+  document_files (in "../document")
+    "root.bib"
+
 session TIGER_Grammar_Model in "grammar/model" = Context_Free_Grammar +
   description "The indentation-sensitive grammar model (Adams) and its parse trees."
   options [document = false, timeout = 300]
@@ -68,11 +77,11 @@ session TIGER_Lexer in "lexer" = TIGER_Token +
     "Symbolic regexes and their derivatives, the inductive lexer specification, the DFA
      table generator and the runner, and the pattern and lexer commands."
   options [document = false, timeout = 300]
-  sessions "Regular-Sets" "HOL-Library"
+  sessions "Regular-Sets" "HOL-Library" TIGER_UTF8
   directories "core"
   theories
     TIGER_Lexed TIGER_Regex TIGER_Pred_Algebra TIGER_Intervals TIGER_Spec TIGER_Gen TIGER_Lexer
-    TIGER_Driver TIGER_Tables TIGER_Codepoints
+    TIGER_Driver TIGER_Tables TIGER_Codepoints TIGER_Utf8_Lexer
     TIGER_Pattern TIGER_Rules Lexer_Command Lexer_Check
   document_files (in "../document")
     "root.bib"
@@ -80,7 +89,7 @@ session TIGER_Lexer in "lexer" = TIGER_Token +
 session TIGER_Lexer_Tests in "lexer/tests" = TIGER_Lexer +
   options [document = false, timeout = 300]
   theories Intervals_Tests Tables_Tests Driver_Tests Codepoint_Tests Pattern_Tests
-    Lexer_Command_Tests Lexer_Table_Tests Stress_Lexer_Tests
+    Lexer_Command_Tests Lexer_Table_Tests Stress_Lexer_Tests Utf8_Tests
   document_files (in "../../document")
     "root.bib"
 
