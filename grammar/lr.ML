@@ -93,9 +93,30 @@ fun string_of_tm ctxt (gram: Grammar_Common.grammar) t =
         | _ => Syntax.string_of_term ctxt t))
   end;
 
-(* \<open>#\<close> occurs in the names of restricted grammars only; the reports speak of the grammar *)
-fun string_of_sym _ _ (SNt n) = Grammar_Common.orig_string n
-  | string_of_sym ctxt gram (STm a) = string_of_tm ctxt gram a;
+(* the reports speak of the grammar as written: \<open>#\<close> occurs in the names of restricted
+   grammars only, and a nonterminal shows by its display name (a grammar's qualifier
+   dropped, as in the diagnostics) *)
+fun display_of ctxt (gram: Grammar_Common.grammar) =
+  let val shown = Grammar_Common.display_names ctxt (Symtab.keys (#nonterms gram))
+  in fn n => let val m = Grammar_Common.orig_string n in the_default m (AList.lookup (op =) shown m) end end;
+
+fun string_of_sym disp _ _ (SNt n) = disp n
+  | string_of_sym _ ctxt gram (STm a) = string_of_tm ctxt gram a;
+
+(* the productions of the reports and the start under their display names *)
+fun display_grammar ctxt (gr as {name, tokT, tokenT, start, nat_labels, terminals, lit_names,
+    nonterms, prods, prec, artifacts}: Grammar_Common.grammar) : Grammar_Common.grammar =
+  let
+    val disp = display_of ctxt gr;
+    fun sym (Grammar_Common.RN n) = Grammar_Common.RN (disp n)
+      | sym s = s;
+    fun prod ({no, lhs, rhs, action, span, pos}: Grammar_Common.prod) : Grammar_Common.prod =
+      {no = no, lhs = disp lhs, rhs = map (apfst sym) rhs, action = action, span = span, pos = pos};
+  in
+    {name = name, tokT = tokT, tokenT = tokenT, start = disp start, nat_labels = nat_labels,
+     terminals = terminals, lit_names = lit_names, nonterms = nonterms, prods = map prod prods,
+     prec = prec, artifacts = artifacts}
+  end;
 
 (* production `i` of `iprods`, i.e. of the grammar record, dotted at `dot`;
    the synthesized start production has no record entry *)
@@ -133,7 +154,9 @@ fun state_text ctxt gram path =
     NONE => "unreachable state:"
   | SOME [] => "start state:"
   | SOME syms =>
-      "state after \<open>" ^ space_implode " " (map (string_of_sym ctxt gram) syms) ^ "\<close>:");
+      let val disp = display_of ctxt gram in
+        "state after \<open>" ^ space_implode " " (map (string_of_sym disp ctxt gram) syms) ^ "\<close>:"
+      end);
 
 fun dest_path gram t = Option.map (map (dest_sym gram) o HOLogic.dest_list) (dest_option t);
 fun dest_sample t = Option.map (HOLogic.dest_list) (dest_option t);
@@ -341,7 +364,7 @@ fun lr_discharge
     (* the reports name the entry: two entries of one grammar have their own tables *)
     val entry =
       "\<open>" ^ Binding.name_of parse_bind ^ "\<close> (grammar \<open>" ^ gram_short ^
-      "\<close>, start \<open>" ^ #start gram ^ "\<close>)";
+      "\<close>, start \<open>" ^ display_of ctxt gram (#start gram) ^ "\<close>)";
     val arts = Grammar_Common.artifacts_of gram;
     val gram_t = #gram_t arts;
     val gram_def_th = #gram_def arts;
@@ -356,7 +379,8 @@ fun lr_discharge
         SOME {fresh, ...} => resolve_tac ctxt [fresh]
       | NONE => fresh_name_tac ctxt gram_def_th);
     (* the reports walk the tables, so they read the productions the tables have *)
-    val report_gram = Lazy.lazy (fn () => Grammar_Common.report_grammar gram);
+    val report_gram =
+      Lazy.lazy (fn () => display_grammar ctxt (Grammar_Common.report_grammar gram));
 
     (* the check's value: the equation cached by build_parse, else evaluated here;
        an evaluation failure is reported and leaves the premise in place *)

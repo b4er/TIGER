@@ -1208,7 +1208,7 @@ fun grammar_cmd opts spec = grammar_exp_cmd opts Grammar_Common.no_expansion spe
 fun grammar_surface_cmd opts (surf: surface) lthy =
   let
     val (res, templates) = Grammar_Expand.expand lthy surf;
-    val lthy = Grammar_Expand.register_templates templates lthy;
+    val lthy = lthy |> Grammar_Expand.register_templates templates |> Grammar_Doc.register surf;
   in
     (case res of
       NONE =>

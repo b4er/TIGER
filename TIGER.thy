@@ -560,7 +560,33 @@ text \<open>
   the template see the right-hand side after the replacement, so a parameter bound to
   a fixed spelling binds no value, and the type variables of the carrier are inferred
   per instance. A template of an earlier grammar \<open>g\<close> is used as \<open>g.P(\<dots>)\<close>, or as
-  \<open>P(\<dots>)\<close> if no other template has that name.
+  \<open>P(\<dots>)\<close> if no other template has that name. The grammar
+  \<^verbatim>\<open>Grammar_Prelude\<close> of \<^verbatim>\<open>Grammar_Command\<close> has the generic ones:
+  @{grammar [display, indent = 2] Grammar_Prelude}
+\<close>
+
+subsection \<open>Grammars in documents\label{sec:grammar-doc}\<close>
+
+text \<open>
+  \<^rail>\<open>
+    '@{' (@'grammar' | @'grammar_rail') options? name '}'
+  \<close>
+
+  \<^descr> \descform{\<open>@{grammar G}\<close>} prints the grammar \<open>G\<close> as it was written,
+  without actions and carriers: the token clause, the precedence declarations and one
+  rule \<open>A ::= alt\<^sub>1 | \<dots> | alt\<^sub>n\<close> per nonterminal or template, with the annotations,
+  templates, groups and operators of the specification, \<open>\<epsilon>\<close> for an empty alternative
+  and \<open>@span\<close> left out. A rule too long for a line has one alternative per line.
+  With the option \<open>display\<close> it is a block of its own. A grammar of templates only is
+  printed as well; a grammar built in ML, without a specification, is printed from its
+  productions.
+
+  \<^descr> \descform{\<open>@{grammar_rail G}\<close>} draws the same rules as railroad diagrams, as
+  \<open>@{rail}\<close> does, which needs \<^verbatim>\<open>railsetup\<close> in the document's preamble. An
+  operator or a group with an annotation, which a diagram has no box for, is one box
+  with its text.
+
+  Both are shown for the grammar of the example in Section~\ref{sec:grammar-example}.
 \<close>
 
 subsection \<open>Parsers\label{sec:parser}\<close>
@@ -763,15 +789,15 @@ text \<open>
   so an edit of the grammar that renumbers the states needs no change of the block.
 \<close>
 
-subsection \<open>Example\<close>
+subsection \<open>Example\label{sec:grammar-example}\<close>
 
 text \<open>
   A statement is an identifier or a \<open>while\<close> header followed by a block indented
   further than the header, the statements of a block aligned. The value is the number
   of statements:
+\<close>
 
-  @{theory_text [display, indent = 2]
-\<open>datatype tok = While | Colon | Id
+datatype tok = While | Colon | Id
 
 grammar (relation) py =
   tokens \<open>tok\<close>
@@ -787,7 +813,14 @@ grammar (relation) py =
         = Id\<^sup>=                      \<Rightarrow> \<open>\<lambda>_. 1\<close>
         | "while"\<^sup>= Id\<^sup>> ":"\<^sup>> Block\<^sup>>  \<Rightarrow> \<open>\<lambda>_ n. n + 1\<close>
 
-parser py_parse for py\<close>}
+text \<open>
+  \<open>@{grammar [display, indent = 2] py}\<close> prints the grammar without its actions
+  (Section~\ref{sec:grammar-doc}):
+  @{grammar [display, indent = 2] py}
+  and \<open>@{grammar_rail py}\<close> draws it:
+  @{grammar_rail py}
+  A parser for it is one command:
+  @{theory_text [display, indent = 2] \<open>parser py_parse for py\<close>}
 
   \<open>Id\<close> is a token class, so the first action of \<open>Stmt\<close> takes its token record and
   ignores it. \<open>Block\<close> without annotation leaves the column of the outermost block free,

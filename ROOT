@@ -61,7 +61,7 @@ session TIGER_Grammar in "grammar" = TIGER_Grammar_Model +
 
 session TIGER_Grammar_Tests in "grammar/tests" = TIGER_Grammar +
   options [document = false, timeout = 1200]
-  theories Parser_Check Regression_Tests Diag_Tests Reach_Tests Prec_Tests Prec_Surface_Tests Compose_Tests Param_Tests Span_Tests Ast_Tests Provider_Tests
+  theories Parser_Check Regression_Tests Diag_Tests Reach_Tests Prec_Tests Prec_Surface_Tests Compose_Tests Param_Tests Span_Tests Ast_Tests Provider_Tests Doc_Tests
     Same_Terms
   document_files (in "../../document")
     "root.bib"

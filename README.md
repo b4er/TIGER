@@ -50,6 +50,7 @@ is the gate for every edit of the commands:
 - `Span_Tests`: `@span`.
 - `Ast_Tests`: `parser (ast)`.
 - `Provider_Tests`: `tokens of L` with a provider registered by hand.
+- `Doc_Tests`: `@{grammar G}` and `@{grammar_rail G}`, the grammar as written for a document.
 - `Same_Terms`: the facts emitted for a few grammars of `Regression_Tests` and
   `Prec_Surface_Tests`, as hashes of their terms, against `grammar/tests/same_terms.txt`.
 

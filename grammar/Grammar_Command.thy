@@ -110,6 +110,7 @@ ML_file \<open>grammar_ptree_induct.ML\<close>
 ML_file \<open>grammar_defs.ML\<close>
 ML_file \<open>grammar_rel.ML\<close>
 ML_file \<open>grammar_expand.ML\<close>
+ML_file \<open>grammar_doc.ML\<close>
 ML_file \<open>grammar_elab.ML\<close>
 ML_file \<open>grammar_syntax.ML\<close>
 
