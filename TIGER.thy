@@ -76,7 +76,7 @@ text \<open>
 
 text \<open>
   \<^rail>\<open>
-    option: 'sketch' | 'codepoints' | 'char' | 'no_check'
+    option: 'sketch' | 'codepoints' | 'char' | 'utf8' | 'no_check'
   \<close>
 
   \<^descr> \descform{\<^verbatim>\<open>sketch\<close>} stops after the specification: generates no tables
@@ -90,6 +90,14 @@ text \<open>
   means its part below \<open>0x100\<close>. A class that reaches above \<open>0xFF\<close> is then an error,
   unless it reaches the last codepoint: \<^verbatim>\<open>_\<close> and \<open>[^\<dots>]\<close> mean the remaining
   bytes.
+
+  \<^descr> \descform{\<^verbatim>\<open>utf8\<close>} builds a lexer on the bytes of UTF-8 that decodes and
+  lexes in one pass: \<^const>\<open>char_lexer\<close> on the tables of \<^const>\<open>utf8_spec\<close>
+  \<open>L.spec\<close>, whose regexes match the encodings of what the rules of \<open>L\<close> match on
+  codepoints. Token texts and trivia are bytes, offsets count bytes and columns count
+  codepoints. The newline class must stay below \<open>0x80\<close>; one that leaves ASCII is an
+  error at \<^theory_text>\<open>newline c\<close>. The residue starts at or before the first
+  malformed sequence.
 
   \<^descr> \descform{\<^verbatim>\<open>no_check\<close>} drops the warning at rules that can never match
   (Section~\ref{sec:lexer-defined}).
@@ -245,8 +253,9 @@ text \<open>
   matches, and the winning rule is the first that matches it. Its action, which Verbatim
   does not have, gives the token class and the new stack.
 
-  The judgment \<open>lexes sp is_newline st q s l r st\<^sub>f\<close> chains steps from the stack \<open>st\<close> and
-  the position \<open>q\<close>, and relates the input \<open>s\<close> to its tokens with their spans and trivia
+  The judgment \<open>lexes sp is_newline is_col st q s l r st\<^sub>f\<close> chains steps from the stack
+  \<open>st\<close> and the position \<open>q\<close> (\<open>is_newline\<close> ends a line and \<open>is_col\<close> says which characters
+  count a column), and relates the input \<open>s\<close> to its tokens with their spans and trivia
   \<open>l\<close>, the residue \<open>r\<close> where no step applies, and the stack \<open>st\<^sub>f\<close> it stops in. A lexical
   error is not a failure but a nonempty residue, and an unterminated comment is an empty
   residue in a mode that is not final. Each step consumes a nonempty lexeme, so whatever
@@ -281,10 +290,15 @@ text \<open>
   \<^descr> \<open>L_lex.correct\<close>: on an input of codepoints, \<open>L_lex\<close> computes the judgment,
   @{text [display] \<open>(\<forall>c \<in> set w. c \<le> 0x10FFFF) \<Longrightarrow>
   L_lex w = (l, r, st\<^sub>f) \<longleftrightarrow>
-    symbolic.lexes in_cls L.spec L.is_newline [L.start] q\<^sub>0 w l r st\<^sub>f\<close>}
+    symbolic.lexes in_cls L.spec L.is_newline (\<lambda>_. True) [L.start] q\<^sub>0 w l r st\<^sub>f\<close>}
   the instance of @{thm [source] cp_lexer_iff_lexes_in_range} for \<open>L.spec\<close>. With the
   option \<open>(\<^verbatim>\<open>char\<close>)\<close> it is @{thm [source] char_lexer_iff_lexes}, the judgment of
-  \<^const>\<open>char_spec\<close> \<open>L.spec\<close> on bytes, with no condition on the input.
+  \<^const>\<open>char_spec\<close> \<open>L.spec\<close> on bytes, with no condition on the input. With
+  \<open>(\<^verbatim>\<open>utf8\<close>)\<close> it is @{thm [source] utf8_lexer_iff_lexes}: on the bytes \<open>s\<close> of
+  valid UTF-8 with \<^term>\<open>utf8 s cs\<close>, \<open>L_lex\<close> gives the encoding
+  (\<^const>\<open>encode_lexed\<close>) of the judgment of \<open>L.spec\<close> on the codepoints \<open>cs\<close>.
+  On any bytes, \<open>L_lex.consumed\<close> (@{thm [source] utf8_lexer_consumed}) says that
+  the consumed prefix is valid UTF-8 and lexes alone as it does in front of the residue.
 \<close>
 
 text \<open>
@@ -546,7 +560,33 @@ text \<open>
   the template see the right-hand side after the replacement, so a parameter bound to
   a fixed spelling binds no value, and the type variables of the carrier are inferred
   per instance. A template of an earlier grammar \<open>g\<close> is used as \<open>g.P(\<dots>)\<close>, or as
-  \<open>P(\<dots>)\<close> if no other template has that name.
+  \<open>P(\<dots>)\<close> if no other template has that name. The grammar
+  \<^verbatim>\<open>Grammar_Prelude\<close> of \<^verbatim>\<open>Grammar_Command\<close> has the generic ones:
+  @{grammar [display, indent = 2] Grammar_Prelude}
+\<close>
+
+subsection \<open>Grammars in documents\label{sec:grammar-doc}\<close>
+
+text \<open>
+  \<^rail>\<open>
+    '@{' (@'grammar' | @'grammar_rail') options? name '}'
+  \<close>
+
+  \<^descr> \descform{\<open>@{grammar G}\<close>} prints the grammar \<open>G\<close> as it was written,
+  without actions and carriers: the token clause, the precedence declarations and one
+  rule \<open>A ::= alt\<^sub>1 | \<dots> | alt\<^sub>n\<close> per nonterminal or template, with the annotations,
+  templates, groups and operators of the specification, \<open>\<epsilon>\<close> for an empty alternative
+  and \<open>@span\<close> left out. A rule too long for a line has one alternative per line.
+  With the option \<open>display\<close> it is a block of its own. A grammar of templates only is
+  printed as well; a grammar built in ML, without a specification, is printed from its
+  productions.
+
+  \<^descr> \descform{\<open>@{grammar_rail G}\<close>} draws the same rules as railroad diagrams, as
+  \<open>@{rail}\<close> does, which needs \<^verbatim>\<open>railsetup\<close> in the document's preamble. An
+  operator or a group with an annotation, which a diagram has no box for, is one box
+  with its text.
+
+  Both are shown for the grammar of the example in Section~\ref{sec:grammar-example}.
 \<close>
 
 subsection \<open>Parsers\label{sec:parser}\<close>
@@ -749,15 +789,15 @@ text \<open>
   so an edit of the grammar that renumbers the states needs no change of the block.
 \<close>
 
-subsection \<open>Example\<close>
+subsection \<open>Example\label{sec:grammar-example}\<close>
 
 text \<open>
   A statement is an identifier or a \<open>while\<close> header followed by a block indented
   further than the header, the statements of a block aligned. The value is the number
   of statements:
+\<close>
 
-  @{theory_text [display, indent = 2]
-\<open>datatype tok = While | Colon | Id
+datatype tok = While | Colon | Id
 
 grammar (relation) py =
   tokens \<open>tok\<close>
@@ -773,7 +813,14 @@ grammar (relation) py =
         = Id\<^sup>=                      \<Rightarrow> \<open>\<lambda>_. 1\<close>
         | "while"\<^sup>= Id\<^sup>> ":"\<^sup>> Block\<^sup>>  \<Rightarrow> \<open>\<lambda>_ n. n + 1\<close>
 
-parser py_parse for py\<close>}
+text \<open>
+  \<open>@{grammar [display, indent = 2] py}\<close> prints the grammar without its actions
+  (Section~\ref{sec:grammar-doc}):
+  @{grammar [display, indent = 2] py}
+  and \<open>@{grammar_rail py}\<close> draws it:
+  @{grammar_rail py}
+  A parser for it is one command:
+  @{theory_text [display, indent = 2] \<open>parser py_parse for py\<close>}
 
   \<open>Id\<close> is a token class, so the first action of \<open>Stmt\<close> takes its token record and
   ignores it. \<open>Block\<close> without annotation leaves the column of the outermost block free,

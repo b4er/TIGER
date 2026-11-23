@@ -74,22 +74,22 @@ text \<open>One step in the stack \<open>m # st\<close> reads the winning lexeme
   and yields the kind \<open>k\<close>, the new stack and the rest of the input.\<close>
 
 inductive lexes ::
-  \<open>('k, 'p, 'ch, 'm) lexer_spec \<Rightarrow> ('ch \<Rightarrow> bool) \<Rightarrow> 'm list \<Rightarrow> pos \<Rightarrow>
+  \<open>('k, 'p, 'ch, 'm) lexer_spec \<Rightarrow> ('ch \<Rightarrow> bool) \<Rightarrow> ('ch \<Rightarrow> bool) \<Rightarrow> 'm list \<Rightarrow> pos \<Rightarrow>
     'ch list \<Rightarrow> ('k, 'ch) lexed \<Rightarrow> 'ch list \<Rightarrow> 'm list \<Rightarrow> bool\<close>
-for sp is_newline where
+for sp is_newline is_col where
   lexes_stop:
-    \<open>(\<And>x. \<not> step sp st s x) \<Longrightarrow> lexes sp is_newline st q s (Lexed [] []) s st\<close>
+    \<open>(\<And>x. \<not> step sp st s x) \<Longrightarrow> lexes sp is_newline is_col st q s (Lexed [] []) s st\<close>
 | lexes_token:
     \<open>\<lbrakk> step sp st s (Some k, p, st', s');
-       lexes sp is_newline st' (advance_list is_newline p q) s' (Lexed h ts) r st\<^sub>f
+       lexes sp is_newline is_col st' (advance_list is_newline is_col p q) s' (Lexed h ts) r st\<^sub>f
      \<rbrakk> \<Longrightarrow>
-     lexes sp is_newline st q s
+     lexes sp is_newline is_col st q s
       (Lexed [] (\<lparr>tok = k, span = span_at q p, trivia = h\<rparr> # ts)) r st\<^sub>f\<close>
 | lexes_trivia:
     \<open>\<lbrakk> step sp st s (None, p, st', s');
-       lexes sp is_newline st' (advance_list is_newline p q) s' (Lexed h ts) r st\<^sub>f
+       lexes sp is_newline is_col st' (advance_list is_newline is_col p q) s' (Lexed h ts) r st\<^sub>f
      \<rbrakk> \<Longrightarrow>
-     lexes sp is_newline st q s (Lexed (p @ h) ts) r st\<^sub>f\<close>
+     lexes sp is_newline is_col st q s (Lexed (p @ h) ts) r st\<^sub>f\<close>
 
 text \<open>The driver lexes \<open>s\<close> from stack \<open>st\<close> and position \<open>q\<close> into a lexed source, the
   residue \<open>r\<close> where no step applies and the stack \<open>st\<^sub>f\<close> it stops in
@@ -136,8 +136,74 @@ lemma step_length_less: \<open>step sp st s (k, p, st', s') \<Longrightarrow> le
 text \<open>Every step consumes input (no empty matches). This is the progress measure of the
   driver.\<close>
 
-lemma lexes_source: \<open>lexes sp is_newline st q s l r st\<^sub>f \<Longrightarrow> source l @ r = s\<close>
+lemma lexes_source: \<open>lexes sp is_newline is_col st q s l r st\<^sub>f \<Longrightarrow> source l @ r = s\<close>
   by (induct rule: lexes.induct) (auto simp: source_def span_at_def elim!: step.cases)
+
+text \<open>Cutting the input after what a run consumed changes no step (the longer prefixes of
+  the shorter input are prefixes of the longer one), and no step applies to the empty
+  rest:\<close>
+
+lemma max_pref_prefix:
+  assumes \<open>max_pref rs p (p @ u @ v)\<close>
+  shows \<open>max_pref rs p (p @ u)\<close>
+proof -
+  from max_prefD[OF assms] obtain \<rho> where \<open>\<rho> \<in> set rs\<close> \<open>match_rule \<rho> p\<close>
+    by blast
+  then show ?thesis
+  proof (rule max_prefI[OF refl])
+    fix p' u' \<rho>'
+    assume \<open>p @ u = p' @ u'\<close> \<open>length p < length p'\<close> \<open>\<rho>' \<in> set rs\<close>
+    with max_pref_longest[OF assms, of p' \<open>u' @ v\<close>] show \<open>\<not> match_rule \<rho>' p'\<close>
+      by simp
+  qed
+qed
+
+lemma step_append:
+  assumes \<open>step sp st (p @ u @ v) (k, p, st', u @ v)\<close>
+  shows \<open>step sp st (p @ u) (k, p, st', u)\<close>
+proof -
+  from assms obtain m i st\<^sub>0 where \<open>st = m # st\<^sub>0\<close> \<open>first_token (sp m) i p (p @ u @ v)\<close>
+    \<open>act (sp m ! i) p (m # st\<^sub>0) = (k, st')\<close> \<open>st' \<noteq> []\<close>
+    by (auto elim!: step.cases)
+  moreover from \<open>first_token (sp m) i p (p @ u @ v)\<close> have \<open>first_token (sp m) i p (p @ u)\<close>
+    by (auto elim!: first_token.cases intro!: first_tokenI dest: max_pref_prefix)
+  ultimately show ?thesis
+    by (auto intro: step.intros)
+qed
+
+lemma lexes_consumed:
+  \<open>lexes sp is_newline is_col st q s l r st\<^sub>f \<Longrightarrow>
+    lexes sp is_newline is_col st q (source l) l [] st\<^sub>f\<close>
+proof (induct rule: lexes.induct)
+  case lexes_stop
+  have \<open>\<not> step sp st' [] x\<close> for st' x
+    by (cases x) (auto dest: step_length_less)
+  then show ?case
+    by (auto simp: source_def intro: lexes.lexes_stop)
+next
+  case (lexes_token st s k p st' s' q h ts r st\<^sub>f)
+  from \<open>step sp st s (Some k, p, st', s')\<close> have \<open>s = p @ s'\<close>
+    by (auto elim: step.cases)
+  with lexes_token lexes_source
+  have \<open>step sp st (p @ source (Lexed h ts)) (Some k, p, st', source (Lexed h ts))\<close>
+    by (metis step_append)
+  moreover have \<open>source (Lexed [] (\<lparr>tok = k, span = span_at q p, trivia = h\<rparr> # ts)) =
+      p @ source (Lexed h ts)\<close>
+    by (simp add: source_def span_at_def)
+  ultimately show ?case
+    using lexes_token by (auto intro: lexes.lexes_token)
+next
+  case (lexes_trivia st s p st' s' q h ts r st\<^sub>f)
+  from \<open>step sp st s (None, p, st', s')\<close> have \<open>s = p @ s'\<close>
+    by (auto elim: step.cases)
+  with lexes_trivia lexes_source
+  have \<open>step sp st (p @ source (Lexed h ts)) (None, p, st', source (Lexed h ts))\<close>
+    by (metis step_append)
+  moreover have \<open>source (Lexed (p @ h) ts) = p @ source (Lexed h ts)\<close>
+    by (simp add: source_def)
+  ultimately show ?case
+    using lexes_trivia by (auto intro: lexes.lexes_trivia)
+qed
 
 section \<open>Surface theorems\<close>
 
@@ -172,7 +238,8 @@ theorem step_deterministic: \<open>step sp st s x \<Longrightarrow> step sp st s
   by (elim step.cases) (auto dest: first_token_deterministic)
 
 theorem lexes_deterministic:
-  assumes \<open>lexes sp is_newline st q s l r st\<^sub>f\<close> \<open>lexes sp is_newline st q s l' r' st\<^sub>f'\<close>
+  assumes \<open>lexes sp is_newline is_col st q s l r st\<^sub>f\<close>
+    and \<open>lexes sp is_newline is_col st q s l' r' st\<^sub>f'\<close>
   shows \<open>l = l' \<and> r = r' \<and> st\<^sub>f = st\<^sub>f'\<close>
   using assms
 proof (induction arbitrary: l' r' st\<^sub>f' rule: lexes.induct)
@@ -198,7 +265,7 @@ text \<open>The driver terminates on every input, whatever the actions do to the
   accessibility proof through the function; here the run is an inductive relation and
   totality is a theorem, by induction on the length of the input:\<close>
 
-theorem lexes_total: \<open>\<exists>l r st\<^sub>f. lexes sp is_newline st q s l r st\<^sub>f\<close>
+theorem lexes_total: \<open>\<exists>l r st\<^sub>f. lexes sp is_newline is_col st q s l r st\<^sub>f\<close>
 proof (induct s arbitrary: st q rule: length_induct[case_names len])
   case (len s) show ?case
   proof (cases \<open>\<exists>x. step sp st s x\<close>)
@@ -206,7 +273,7 @@ proof (induct s arbitrary: st q rule: length_induct[case_names len])
     then obtain k p st' s' where step: \<open>step sp st s (k, p, st', s')\<close>
       by (metis prod_cases4)
     with len obtain l r st\<^sub>f
-      where \<open>lexes sp is_newline st' (advance_list is_newline p q) s' l r st\<^sub>f\<close>
+      where \<open>lexes sp is_newline is_col st' (advance_list is_newline is_col p q) s' l r st\<^sub>f\<close>
       by (meson step_length_less)
     with step show ?thesis
       by (cases l; cases k; blast intro: lexes_token lexes_trivia)

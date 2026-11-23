@@ -20,29 +20,34 @@ record pos =
   col :: nat
   off :: nat
 
-definition advance :: \<open>('ch \<Rightarrow> bool) \<Rightarrow> 'ch \<Rightarrow> pos \<Rightarrow> pos\<close> where
-  \<open>advance is_newline c p = (if is_newline c
+definition advance :: \<open>('ch \<Rightarrow> bool) \<Rightarrow> ('ch \<Rightarrow> bool) \<Rightarrow> 'ch \<Rightarrow> pos \<Rightarrow> pos\<close> where
+  \<open>advance is_newline is_col c p = (if is_newline c
      then \<lparr>line = Suc (line p), col = 0, off = Suc (off p)\<rparr>
-     else p\<lparr>col := Suc (col p), off := Suc (off p)\<rparr>)\<close>
+     else p\<lparr>col := (if is_col c then Suc (col p) else col p), off := Suc (off p)\<rparr>)\<close>
 
-text \<open>\<^const>\<open>advance\<close> moves past one character. The newline test is a parameter
-  (the character type is arbitrary).\<close>
+text \<open>\<^const>\<open>advance\<close> moves past one character. The newline test and the column
+  test are parameters (the character type is arbitrary). A character other than a newline
+  adds a column if it passes the column test. On bytes of UTF-8 the column test is
+  \<open>the byte starts a codepoint\<close>, so columns count codepoints while offsets count bytes.
+  \<^term>\<open>\<lambda>_. True\<close> counts every character.\<close>
 
-primrec advance_list :: \<open>('ch \<Rightarrow> bool) \<Rightarrow> 'ch list \<Rightarrow> pos \<Rightarrow> pos\<close> where
-  \<open>advance_list is_newline [] p = p\<close>
-| \<open>advance_list is_newline (c # w) p = advance_list is_newline w (advance is_newline c p)\<close>
+primrec advance_list :: \<open>('ch \<Rightarrow> bool) \<Rightarrow> ('ch \<Rightarrow> bool) \<Rightarrow> 'ch list \<Rightarrow> pos \<Rightarrow> pos\<close> where
+  \<open>advance_list is_newline is_col [] p = p\<close>
+| \<open>advance_list is_newline is_col (c # w) p =
+    advance_list is_newline is_col w (advance is_newline is_col c p)\<close>
 
-lemma off_advance[simp]: \<open>off (advance is_newline c p) = Suc (off p)\<close>
+lemma off_advance[simp]: \<open>off (advance is_newline is_col c p) = Suc (off p)\<close>
   by (simp add: advance_def)
 
-lemma off_advance_list[simp]: \<open>off (advance_list is_newline w p) = off p + length w\<close>
+lemma off_advance_list[simp]: \<open>off (advance_list is_newline is_col w p) = off p + length w\<close>
   by (induct w arbitrary: p) simp_all
 
-lemma off_le_advance_list: \<open>off p \<le> off (advance_list is_newline w p)\<close>
+lemma off_le_advance_list: \<open>off p \<le> off (advance_list is_newline is_col w p)\<close>
   by simp
 
 lemma advance_list_append[simp]:
-  \<open>advance_list is_newline (u @ v) p = advance_list is_newline v (advance_list is_newline u p)\<close>
+  \<open>advance_list is_newline is_col (u @ v) p =
+    advance_list is_newline is_col v (advance_list is_newline is_col u p)\<close>
   by (induct u arbitrary: p) simp_all
 
 definition span_at :: \<open>pos \<Rightarrow> 'ch list \<Rightarrow> 'ch span\<close> where
@@ -51,7 +56,8 @@ definition span_at :: \<open>pos \<Rightarrow> 'ch list \<Rightarrow> 'ch span\<
 text \<open>\<^const>\<open>span_at\<close> is the span of the text \<open>w\<close> starting at \<open>p\<close>. It is well formed:
   it ends where \<^const>\<open>advance_list\<close> stops.\<close>
 
-lemma span_at_stop: \<open>s_off (span_at p w) + s_len (span_at p w) = off (advance_list is_newline w p)\<close>
+lemma span_at_stop:
+  \<open>s_off (span_at p w) + s_len (span_at p w) = off (advance_list is_newline is_col w p)\<close>
   by (simp add: span_at_def)
 
 section \<open>Lexer output\<close>

@@ -307,4 +307,38 @@ ML \<open>
     | _ => false);
 \<close>
 
+text \<open>The report shows the nonterminals by their display names: on a restricted grammar
+  whose atom is a copy \<open>ea.A\<close> of another grammar's nonterminal, the restricted names map
+  back to \<open>A\<close>, as in the diagnostics, not to \<open>ea.A\<close>.\<close>
+
+grammar ea =
+  tokens \<open>p_tok\<close>
+  productions A :: \<open>p_exp\<close> = PNum \<Rightarrow> \<open>\<lambda>_. N\<close>
+
+grammar eha =
+  tokens \<open>p_tok\<close>
+  terminals "+" = \<open>PPlus\<close> and "*" = \<open>PStar\<close>
+  precedence left "+"
+  precedence left "*"
+  productions
+    E :: \<open>p_exp\<close>
+      = E "+" E \<Rightarrow> \<open>\<lambda>a b. Add a b\<close>
+      | E "*" E \<Rightarrow> \<open>\<lambda>a b. Mul a b\<close>
+      | ea.A
+
+ML \<open>
+  val report = command_output \<^theory> "parser: \<open>eha_t\<close>" "parser eha_t for eha";
+  val _ = \<^assert> (report = [cat_lines
+    ["parser: \<open>eha_t\<close> (grammar \<open>eha\<close>, start \<open>E\<close>) has LR conflicts in 3 states (3 with a layout witness); \<open>mdet\<close> kept as an assumption on .complete",
+     "state after \<open>E \"+\" E \"*\" E\<close>:",
+     "  reduce/reduce on \"+\" \"*\":  reduce \<open>E = E \"*\" E\<close>  vs  reduce \<open>E = E \"*\" E\<close>",
+     "  example \<open>PNum \"+\" PNum \"*\" PNum \<cdot> \"+\"\<close>: two actions live (all tokens at column 0)",
+     "state after \<open>E \"+\" A\<close>:",
+     "  reduce/reduce on \"+\" \"*\":  reduce \<open>E = A\<close>  vs  reduce \<open>E = A\<close>",
+     "  example \<open>PNum \"+\" PNum \<cdot> \"+\"\<close>: two actions live (all tokens at column 0)",
+     "state after \<open>E \"*\" E\<close>:",
+     "  reduce/reduce on \"+\" \"*\":  reduce \<open>E = E\<close>  vs  reduce \<open>E = E \"*\" E\<close>",
+     "  example \<open>PNum \"*\" PNum \<cdot> \"+\"\<close>: two actions live (all tokens at column 0)"]]);
+\<close>
+
 end

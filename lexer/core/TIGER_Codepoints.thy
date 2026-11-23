@@ -157,8 +157,8 @@ lemma step_cong:
   by (simp add: symbolic.step.simps first_token_cong[OF assms])
 
 lemma lexes_cong_imp:
-  assumes \<open>symbolic.lexes sem sp is_newline st q s l r st\<^sub>f\<close> \<open>set s \<subseteq> A\<close>
-  shows \<open>symbolic.lexes sem' sp is_newline st q s l r st\<^sub>f\<close>
+  assumes \<open>symbolic.lexes sem sp is_newline is_col st q s l r st\<^sub>f\<close> \<open>set s \<subseteq> A\<close>
+  shows \<open>symbolic.lexes sem' sp is_newline is_col st q s l r st\<^sub>f\<close>
   using assms
 proof (induction rule: symbolic.lexes.induct[of sem, consumes 1, case_names stop token trivia])
   case (stop st s q)
@@ -188,8 +188,8 @@ end
 
 lemma lexes_cong:
   assumes \<open>\<And>p c. c \<in> A \<Longrightarrow> sem p c = sem' p c\<close> \<open>set s \<subseteq> A\<close>
-  shows \<open>symbolic.lexes sem sp is_newline st q s l r st\<^sub>f \<longleftrightarrow>
-    symbolic.lexes sem' sp is_newline st q s l r st\<^sub>f\<close>
+  shows \<open>symbolic.lexes sem sp is_newline is_col st q s l r st\<^sub>f \<longleftrightarrow>
+    symbolic.lexes sem' sp is_newline is_col st q s l r st\<^sub>f\<close>
   using lexes_cong_imp[of A sem sem'] lexes_cong_imp[of A sem' sem] assms by (metis (no_types))
 
 context range_order
@@ -318,7 +318,7 @@ text \<open>The lexer on codepoints takes the tables of all modes as one array a
 
 definition cp_lexer ::
   \<open>cp_tables iarray \<Rightarrow> ('m \<Rightarrow> nat) \<Rightarrow> ('k, nat cls, nat, 'm) lexer_spec \<Rightarrow> (nat \<Rightarrow> bool) \<Rightarrow>
-    'm list \<Rightarrow> pos \<Rightarrow> nat list \<Rightarrow> ('k, nat) lexed \<times> nat list \<times> 'm list\<close>
+    (nat \<Rightarrow> bool) \<Rightarrow> 'm list \<Rightarrow> pos \<Rightarrow> nat list \<Rightarrow> ('k, nat) lexed \<times> nat list \<times> 'm list\<close>
 where
   \<open>cp_lexer TT ix =
     drive (\<lambda>m. if ix m < IArray.length TT then run_cp (TT !! ix m) else (\<lambda>_. None))\<close>
@@ -352,15 +352,15 @@ lemma cp_lexer_tables_index:
   by (simp add: cp_lexer_tables_def list_spec_def)
 
 theorem cp_lexer_list_iff_lexes:
-  \<open>cp_lexer (cp_lexer_tables sps) id (list_spec sps) is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
-    cp_cls.lexes (list_spec sps) is_newline st q s l r st\<^sub>f\<close>
+  \<open>cp_lexer (cp_lexer_tables sps) id (list_spec sps) is_newline is_col st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    cp_cls.lexes (list_spec sps) is_newline is_col st q s l r st\<^sub>f\<close>
   unfolding cp_lexer_def
   by (rule cp_cls.drive_iff_lexes[OF mode_runner_cp_lexer[OF cp_lexer_tables_index]])
 
 theorem cp_lexer_list_iff_lexes_in_range:
   assumes \<open>\<forall>c \<in> set s. c \<le> 0x10FFFF\<close>
-  shows \<open>cp_lexer (cp_lexer_tables sps) id (list_spec sps) is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
-    symbolic.lexes in_cls (list_spec sps) is_newline st q s l r st\<^sub>f\<close>
+  shows \<open>cp_lexer (cp_lexer_tables sps) id (list_spec sps) is_newline is_col st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    symbolic.lexes in_cls (list_spec sps) is_newline is_col st q s l r st\<^sub>f\<close>
   unfolding cp_lexer_list_iff_lexes
   by (rule lexes_cong[where A = \<open>{.. 0x10FFFF}\<close>]) (use assms in \<open>auto simp: cp_cls.in_clamped_iff\<close>)
 
@@ -386,8 +386,8 @@ text \<open>If the index of each mode holds its tables, the lexer on codepoints 
 
 theorem cp_lexer_iff_lexes:
   assumes \<open>\<forall>m. ix m < IArray.length TT \<and> TT !! ix m = cp_tables (sp m)\<close>
-  shows \<open>cp_lexer TT ix sp is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
-    cp_cls.lexes sp is_newline st q s l r st\<^sub>f\<close>
+  shows \<open>cp_lexer TT ix sp is_newline is_col st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    cp_cls.lexes sp is_newline is_col st q s l r st\<^sub>f\<close>
   unfolding cp_lexer_def
   by (rule cp_cls.drive_iff_lexes[OF mode_runner_cp_lexer]) (use assms in auto)
 
@@ -397,8 +397,8 @@ text \<open>On an input in range, it is the driver of the spec with the plain re
 theorem cp_lexer_iff_lexes_in_range:
   assumes \<open>\<forall>m. ix m < IArray.length TT \<and> TT !! ix m = cp_tables (sp m)\<close>
     and \<open>\<forall>c \<in> set s. c \<le> 0x10FFFF\<close>
-  shows \<open>cp_lexer TT ix sp is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
-    symbolic.lexes in_cls sp is_newline st q s l r st\<^sub>f\<close>
+  shows \<open>cp_lexer TT ix sp is_newline is_col st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    symbolic.lexes in_cls sp is_newline is_col st q s l r st\<^sub>f\<close>
   unfolding cp_lexer_iff_lexes[OF assms(1)]
   by (rule lexes_cong[where A = \<open>{.. 0x10FFFF}\<close>])
     (use assms(2) in \<open>auto simp: cp_cls.in_clamped_iff\<close>)

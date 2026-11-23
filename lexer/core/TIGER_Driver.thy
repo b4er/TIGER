@@ -22,11 +22,12 @@ text \<open>The driver lexes a whole input. It steps the runner of the mode on t
 
 fun drive ::
   \<open>('m \<Rightarrow> 'ch list \<Rightarrow> (nat \<times> 'ch list \<times> 'ch list) option) \<Rightarrow> ('k, 'p, 'ch, 'm) lexer_spec \<Rightarrow>
-    ('ch \<Rightarrow> bool) \<Rightarrow> 'm list \<Rightarrow> pos \<Rightarrow> 'ch list \<Rightarrow> ('k, 'ch) lexed \<times> 'ch list \<times> 'm list\<close>
+    ('ch \<Rightarrow> bool) \<Rightarrow> ('ch \<Rightarrow> bool) \<Rightarrow> 'm list \<Rightarrow> pos \<Rightarrow> 'ch list \<Rightarrow>
+    ('k, 'ch) lexed \<times> 'ch list \<times> 'm list\<close>
 where
-  \<open>drive R sp is_newline [] q s = (Lexed [] [], s, [])\<close>
-| \<open>drive R sp is_newline (m # st) q [] = (Lexed [] [], [], m # st)\<close>
-| \<open>drive R sp is_newline (m # st) q (c # v) =
+  \<open>drive R sp is_newline is_col [] q s = (Lexed [] [], s, [])\<close>
+| \<open>drive R sp is_newline is_col (m # st) q [] = (Lexed [] [], [], m # st)\<close>
+| \<open>drive R sp is_newline is_col (m # st) q (c # v) =
     (case R m (c # v) of
       None \<Rightarrow> (Lexed [] [], c # v, m # st)
     | Some (i, p, _) \<Rightarrow>
@@ -34,7 +35,7 @@ where
           (k, st') \<Rightarrow>
             if p = [] \<or> st' = [] then (Lexed [] [], c # v, m # st)
             else
-              (case drive R sp is_newline st' (advance_list is_newline p q)
+              (case drive R sp is_newline is_col st' (advance_list is_newline is_col p q)
                   (drop (length p) (c # v)) of
                 (Lexed h ts, r, st\<^sub>f) \<Rightarrow>
                   (case k of
@@ -72,21 +73,21 @@ lemma step_iff_mode_runner:
 
 lemma lexes_drive:
   assumes \<open>mode_runner sp R\<close>
-  shows \<open>case drive R sp is_newline st q s of
-    (l, r, st\<^sub>f) \<Rightarrow> lexes sp is_newline st q s l r st\<^sub>f\<close>
+  shows \<open>case drive R sp is_newline is_col st q s of
+    (l, r, st\<^sub>f) \<Rightarrow> lexes sp is_newline is_col st q s l r st\<^sub>f\<close>
   using assms
-proof (induction R sp is_newline st q s rule: drive.induct)
-  case (1 R sp is_newline q s)
+proof (induction R sp is_newline is_col st q s rule: drive.induct)
+  case (1 R sp is_newline is_col q s)
   then show ?case
     by (auto intro: lexes_stop elim: step.cases)
 next
-  case (2 R sp is_newline m st q)
+  case (2 R sp is_newline is_col m st q)
   have \<open>\<not> step sp (m # st) [] x\<close> for x
     by (auto elim!: step.cases first_token.cases match_rule.cases)
   then show ?case
     by (auto intro: lexes_stop)
 next
-  case (3 R sp is_newline m st q c v)
+  case (3 R sp is_newline is_col m st q c v)
   note runner = step_iff_mode_runner[OF \<open>mode_runner sp R\<close>]
   show ?case
   proof (cases \<open>R m (c # v)\<close>)
@@ -116,10 +117,10 @@ next
       case False
       with R act have step: \<open>step sp (m # st) (c # v) (k, p, st', rest)\<close>
         using runner by auto
-      let ?d = \<open>drive R sp is_newline st' (advance_list is_newline p q) rest\<close>
+      let ?d = \<open>drive R sp is_newline is_col st' (advance_list is_newline is_col p q) rest\<close>
       from "3.IH"[OF R refl refl act[symmetric]] False \<open>p \<noteq> []\<close> \<open>mode_runner sp R\<close> rest
       have IH: \<open>case ?d of (l, r, st\<^sub>f) \<Rightarrow>
-        lexes sp is_newline st' (advance_list is_newline p q) rest l r st\<^sub>f\<close>
+        lexes sp is_newline is_col st' (advance_list is_newline is_col p q) rest l r st\<^sub>f\<close>
         by simp
       obtain h ts r st\<^sub>f where d: \<open>?d = (Lexed h ts, r, st\<^sub>f)\<close>
         by (metis lexed.exhaust prod.exhaust)
@@ -137,15 +138,17 @@ text \<open>The driver returns a run of the spec (\<open>lexes_drive\<close>), a
 
 theorem drive_iff_lexes:
   assumes \<open>mode_runner sp R\<close>
-  shows \<open>drive R sp is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow> lexes sp is_newline st q s l r st\<^sub>f\<close>
+  shows \<open>drive R sp is_newline is_col st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    lexes sp is_newline is_col st q s l r st\<^sub>f\<close>
 proof
-  assume \<open>drive R sp is_newline st q s = (l, r, st\<^sub>f)\<close>
-  with lexes_drive[OF assms, of is_newline st q s] show \<open>lexes sp is_newline st q s l r st\<^sub>f\<close>
+  assume \<open>drive R sp is_newline is_col st q s = (l, r, st\<^sub>f)\<close>
+  with lexes_drive[OF assms, of is_newline is_col st q s]
+  show \<open>lexes sp is_newline is_col st q s l r st\<^sub>f\<close>
     by simp
 next
-  assume \<open>lexes sp is_newline st q s l r st\<^sub>f\<close>
-  with lexes_drive[OF assms, of is_newline st q s]
-  show \<open>drive R sp is_newline st q s = (l, r, st\<^sub>f)\<close>
+  assume \<open>lexes sp is_newline is_col st q s l r st\<^sub>f\<close>
+  with lexes_drive[OF assms, of is_newline is_col st q s]
+  show \<open>drive R sp is_newline is_col st q s = (l, r, st\<^sub>f)\<close>
     by (auto split: prod.splits dest: lexes_deterministic)
 qed
 
@@ -157,7 +160,8 @@ begin
 text \<open>The driver over the DFA runner of each mode, with a classifier for each mode:\<close>
 
 definition run_lexer ::
-  \<open>('k, 'p, 'ch, 'm) lexer_spec \<Rightarrow> ('m \<Rightarrow> 'ch \<Rightarrow> nat) \<Rightarrow> ('ch \<Rightarrow> bool) \<Rightarrow> 'm list \<Rightarrow> pos \<Rightarrow>
+  \<open>('k, 'p, 'ch, 'm) lexer_spec \<Rightarrow> ('m \<Rightarrow> 'ch \<Rightarrow> nat) \<Rightarrow> ('ch \<Rightarrow> bool) \<Rightarrow> ('ch \<Rightarrow> bool) \<Rightarrow>
+    'm list \<Rightarrow> pos \<Rightarrow>
     'ch list \<Rightarrow> ('k, 'ch) lexed \<times> 'ch list \<times> 'm list\<close>
 where
   \<open>run_lexer sp cls = drive (\<lambda>m. run_dfa (sp m) (cls m)) sp\<close>
@@ -174,8 +178,8 @@ text \<open>With a classifier into the minterms of each mode, the driver returns
 
 theorem run_lexer_iff_lexes:
   assumes \<open>\<And>m. minterm_classifier (sp m) (cls m)\<close>
-  shows \<open>run_lexer sp cls is_newline st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
-    lexes sp is_newline st q s l r st\<^sub>f\<close>
+  shows \<open>run_lexer sp cls is_newline is_col st q s = (l, r, st\<^sub>f) \<longleftrightarrow>
+    lexes sp is_newline is_col st q s l r st\<^sub>f\<close>
   unfolding run_lexer_def by (rule drive_iff_lexes[OF mode_runner_run_dfa[OF assms]])
 
 end

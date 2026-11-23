@@ -131,22 +131,37 @@ fun check_bytes ctxt pos spec groups =
 
 type instance =
   {name: string, tables: term, tablesT: typ, spec: term -> term, newline: term -> term,
-   lexer: term, correct: thm, unfolds: thm list};
+   column: term, lexer: term, correct: thm, consumed: thm option, unfolds: thm list};
+
+(* every character counts a column *)
+fun all_columns T = Abs ("c", T, \<^Const>\<open>True\<close>);
 
 fun instance pos name =
   (case name of
     "codepoints" =>
       {name = name, tables = \<^Const>\<open>cp_tables dummyT dummyT\<close>, tablesT = \<^typ>\<open>cp_tables\<close>,
-       spec = I, newline = I, lexer = Const (\<^const_name>\<open>cp_lexer\<close>, dummyT),
-       correct = @{thm cp_lexer_iff_lexes_in_range}, unfolds = []}
+       spec = I, newline = I, column = all_columns natT,
+       lexer = Const (\<^const_name>\<open>cp_lexer\<close>, dummyT),
+       correct = @{thm cp_lexer_iff_lexes_in_range}, consumed = NONE, unfolds = []}
   | "char" =>
       {name = name, tables = \<^Const>\<open>char_tables dummyT dummyT\<close>,
        tablesT = \<^typ>\<open>char_tables\<close>,
        spec = fn sp => Const (\<^const_name>\<open>char_spec\<close>, dummyT) $ sp,
        newline = fn nl => Abs ("c", \<^typ>\<open>char\<close>, nl $ \<^Const>\<open>of_char natT for \<open>Bound 0\<close>\<close>),
+       column = all_columns \<^typ>\<open>char\<close>,
        lexer = Const (\<^const_name>\<open>char_lexer\<close>, dummyT),
-       correct = @{thm char_lexer_iff_lexes}, unfolds = @{thms char_spec_def}}
-  | _ => err pos ("unknown option " ^ quote name ^ " (sketch, no_check, codepoints or char)"));
+       correct = @{thm char_lexer_iff_lexes}, consumed = NONE, unfolds = @{thms char_spec_def}}
+  | "utf8" =>
+      {name = name, tables = \<^Const>\<open>char_tables dummyT dummyT\<close>,
+       tablesT = \<^typ>\<open>char_tables\<close>,
+       spec = fn sp => Const (\<^const_name>\<open>utf8_spec\<close>, dummyT) $ sp,
+       newline = fn nl => Abs ("c", \<^typ>\<open>char\<close>, nl $ \<^Const>\<open>of_char natT for \<open>Bound 0\<close>\<close>),
+       column = Abs ("c", \<^typ>\<open>char\<close>, HOLogic.mk_not (\<^Const>\<open>is_cont\<close> $ Bound 0)),
+       lexer = Const (\<^const_name>\<open>char_lexer\<close>, dummyT),
+       correct = @{thm utf8_lexer_iff_lexes}, consumed = SOME @{thm utf8_lexer_consumed},
+       unfolds = @{thms utf8_spec_def}}
+  | _ => err pos ("unknown option " ^ quote name ^
+      " (sketch, no_check, codepoints, char or utf8)"));
 
 fun read_instance pos opts =
   (case opts of
@@ -163,6 +178,36 @@ fun prove ctxt t tac = Goal.prove ctxt [] [] (HOLogic.mk_Trueprop t) (fn {contex
   tac context);
 
 fun note (b, ths) = Local_Theory.note ((b, []), ths) #> snd;
+
+(** the utf8 instance: newlines in ASCII **)
+
+(* \<forall>c. L.is_newline c \<longrightarrow> c < 0x80, or an error at the newline clause *)
+fun ascii_newline ctxt is_newline =
+  let
+    val thy = Proof_Context.theory_of ctxt;
+    val name = fst (dest_Const is_newline);
+    val pos = Name_Space.the_entry_pos (Consts.space_of (Sign.consts_of thy)) name;
+    val def0 = Global_Theory.get_thm thy (name ^ "_def");
+    val def =
+      if can Logic.dest_equals (Thm.prop_of def0) then def0 else def0 RS @{thm eq_reflection};
+    val cls = Thm.term_of (Thm.rhs_of def);
+    val cls = (case cls of Abs (_, _, _ $ p $ _) => p | _ => raise TERM ("ascii_newline", [cls]));
+    val ps = the_default [] (try (hd o eval_classes ctxt) [cls]);
+    val _ =
+      if exists (fn (_, b) => b >= 0x80) ps then
+        err pos ("the newline class " ^ string_of_cls ps ^ " leaves ASCII (a newline of the \
+          \utf8 instance is one byte)")
+      else ();
+    val c = Free ("c", natT);
+    val goal =
+      HOLogic.all_const natT $ Term.lambda c
+        (HOLogic.mk_imp (is_newline $ c, \<^Const>\<open>less natT for c \<open>HOLogic.mk_number natT 0x80\<close>\<close>));
+  in
+    prove ctxt goal (fn ctxt =>
+      asm_full_simp_tac (Simplifier.add_simps (def :: @{thms in_cls_iff}) ctxt) 1)
+    handle ERROR _ => err pos "cannot prove that the newline class is ASCII"
+  end;
+
 
 (* the sizes of a table literal: intervals of the class table, minterms and states *)
 fun literal_size lit =
@@ -287,10 +332,11 @@ fun tables check_rules (inst: instance) b (lname, lpos) positions lthy =
     (* the lexer, its success and its correctness *)
     val start_pos = Syntax.read_term lthy "\<lparr>line = 0, col = 0, off = 0\<rparr> :: pos";
     val nl = check lthy (#newline inst is_newline);
+    val col = #column inst;
     val stack = HOLogic.mk_list modeT [start];
     val ((s, s_def), lthy) =
-      Lexer_Command.define (b, check lthy (#lexer inst $ tt $ ix $ sp $ nl $ stack $ start_pos))
-        lthy;
+      Lexer_Command.define
+        (b, check lthy (#lexer inst $ tt $ ix $ sp $ nl $ col $ stack $ start_pos)) lthy;
     val wT = domain_type (fastype_of s);
     val w = Free ("w", wT);
     val (lT, rT, stT) =
@@ -303,13 +349,23 @@ fun tables check_rules (inst: instance) b (lname, lpos) positions lthy =
         (HOLogic.mk_conj (HOLogic.mk_eq (r, HOLogic.mk_list (dest_listT rT) []),
           final $ \<^Const>\<open>hd modeT for st\<close>)) $ (s $ w));
     val (_, lthy) = Lexer_Command.define (qual "ok", ok_rhs) lthy;
+    val utf8 = #name inst = "utf8";
+    val ascii = if utf8 then [ascii_newline lthy is_newline] else [];
+    val tests = [(("is_newline", 0), Thm.cterm_of lthy nl), (("is_col", 0), Thm.cterm_of lthy col)];
+    val start_vars =
+      [(("st", 0), Thm.cterm_of lthy stack), (("q", 0), Thm.cterm_of lthy start_pos)];
     val correct =
-      (#correct inst OF [index_th])
-      |> infer_instantiate lthy
-        [(("is_newline", 0), Thm.cterm_of lthy nl), (("st", 0), Thm.cterm_of lthy stack),
-         (("q", 0), Thm.cterm_of lthy start_pos)]
+      (#correct inst OF (index_th :: ascii))
+      |> infer_instantiate lthy ((if utf8 then [] else tests) @ start_vars)
       |> Local_Defs.fold lthy [s_def];
     val lthy = note (qual "correct", [correct]) lthy;
+    val lthy =
+      (case #consumed inst of
+        SOME th =>
+          note (qual "consumed",
+            [(th OF [index_th]) |> infer_instantiate lthy (tests @ start_vars)
+              |> Local_Defs.fold lthy [s_def]]) lthy
+      | NONE => lthy);
   in (length groups, lthy) end;
 
 fun tables_cmd opts b (lname, lpos) positions lthy =
