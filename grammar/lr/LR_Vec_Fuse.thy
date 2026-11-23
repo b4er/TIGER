@@ -175,7 +175,7 @@ partial_function (option) ivr_grun ::
           | IvRed pr gs' \<Rightarrow> ivr_grun K Lf Nd gs' w v
               (Nd (fst pr) (rev (take (length (snd pr)) us)) # drop (length (snd pr)) us)))))\<close>
 
-lemmas ivr_grun_simps [code] = ivr_grun.simps
+lemmas ivr_grun_simps = ivr_grun.simps
 
 context
   fixes U :: \<open>('m, 'ch, 'n, 't) ast \<Rightarrow> 'u\<close>
@@ -364,6 +364,195 @@ end
 
 lemma ivr_grun_run: \<open>ivr_grun K Leaf Node gs w v ts = ivr_run K gs w v ts\<close>
   using ivr_grun_map[of id Leaf Node id K gs w v ts] by (simp add: vklab_id option.map_id0)
+
+subsection \<open>The cell stack\<close>
+
+text \<open>The frames and the values as one stack: a cell holds a frame and the value of
+  the symbol that led to it, the bottom cell only the start frame. A reduction pops
+  its cells in one walk (\<open>ivc_pop\<close>) that lists the children in order, and finds
+  the frame below them on top of what is left. The run over cells is
+  \<^const>\<open>ivr_grun\<close> over the frames and the values (\<open>ivr_crun_def\<close>), and it is
+  its code (\<open>ivr_grun_code\<close>).\<close>
+
+datatype 'u ivc = IvBot \<open>nat \<times> ivf\<close> | IvCell \<open>nat \<times> ivf\<close> 'u \<open>'u ivc\<close>
+
+primrec ivc_top :: \<open>'u ivc \<Rightarrow> nat \<times> ivf\<close> where
+  \<open>ivc_top (IvBot f) = f\<close>
+| \<open>ivc_top (IvCell f _ _) = f\<close>
+
+primrec ivc_gs :: \<open>'u ivc \<Rightarrow> (nat \<times> ivf) list\<close> where
+  \<open>ivc_gs (IvBot f) = [f]\<close>
+| \<open>ivc_gs (IvCell f _ r) = f # ivc_gs r\<close>
+
+primrec ivc_us :: \<open>'u ivc \<Rightarrow> 'u list\<close> where
+  \<open>ivc_us (IvBot _) = []\<close>
+| \<open>ivc_us (IvCell _ u r) = u # ivc_us r\<close>
+
+fun ivc_pop :: \<open>'b list \<Rightarrow> 'u ivc \<Rightarrow> 'u list \<Rightarrow> ('u ivc \<times> 'u list) option\<close> where
+  \<open>ivc_pop [] c acc = Some (c, acc)\<close>
+| \<open>ivc_pop (_ # xs) (IvCell _ u r) acc = ivc_pop xs r (u # acc)\<close>
+| \<open>ivc_pop (_ # _) (IvBot _) _ = None\<close>
+
+lemma case_ivc_gs: \<open>(case ivc_gs c of [] \<Rightarrow> a | x # xs \<Rightarrow> f x xs) = f (ivc_top c) (tl (ivc_gs c))\<close>
+  by (cases c) simp_all
+
+lemma ivc_pop_Some:
+  \<open>ivc_pop xs c acc = Some (r, us) \<Longrightarrow> drop (length xs) (ivc_gs c) = ivc_gs r \<and>
+     drop (length xs) (ivc_us c) = ivc_us r \<and> us = rev (take (length xs) (ivc_us c)) @ acc\<close>
+  by (induction xs c acc rule: ivc_pop.induct) auto
+
+lemma ivc_pop_None: \<open>ivc_pop xs c acc = None \<Longrightarrow> drop (length xs) (ivc_gs c) = []\<close>
+proof (induction xs c acc rule: ivc_pop.induct)
+  case (3 x xs f acc)
+  then show ?case by (cases xs) simp_all
+qed simp_all
+
+definition ivr_cred :: \<open>('l, 't) vktab \<Rightarrow> 'u ivc \<Rightarrow> ivr \<Rightarrow> nat \<Rightarrow> 'b list \<Rightarrow>
+    ((nat \<times> ivf) \<times> 'u ivc \<times> 'u list) option\<close> where
+  \<open>ivr_cred K c RA b xs = (case ivc_pop xs c [] of None \<Rightarrow> None | Some (r, us) \<Rightarrow>
+     (case ivc_top r of (j\<^sub>0, g\<^sub>0) \<Rightarrow> (case iget (iget (k_go K) j\<^sub>0 (IArray [])) b None of None \<Rightarrow> None
+        | Some e \<Rightarrow> map_option (\<lambda>h. (h, r, us)) (ivr_go e g\<^sub>0 RA))))\<close>
+
+lemma ivr_cred:
+  \<open>ivr_red K (ivc_gs c) g s b pr = map_option (\<lambda>(h, r, us). h # ivc_gs r) (ivr_cred K c (ivf_get g s) b (snd pr))\<close>
+proof (cases \<open>ivc_pop (snd pr) c []\<close>)
+  case None
+  then show ?thesis using ivc_pop_None[OF None] by (simp add: ivr_red_def ivr_cred_def)
+next
+  case (Some p)
+  obtain r us where p: \<open>p = (r, us)\<close> by (cases p)
+  obtain j\<^sub>0 g\<^sub>0 where t: \<open>ivc_top r = (j\<^sub>0, g\<^sub>0)\<close> by (cases \<open>ivc_top r\<close>)
+  from ivc_pop_Some[OF Some[unfolded p]] have d: \<open>drop (length (snd pr)) (ivc_gs c) = ivc_gs r\<close> by simp
+  show ?thesis
+    unfolding ivr_red_def ivr_cred_def Let_def d Some p option.case prod.case case_ivc_gs t
+    by (simp add: option.map_comp comp_def split: option.split)
+qed
+
+lemma ivr_cred_us:
+  \<open>ivr_cred K c RA b xs = Some (h, r, us) \<Longrightarrow>
+     us = rev (take (length xs) (ivc_us c)) \<and> ivc_us r = drop (length xs) (ivc_us c)\<close>
+  by (auto simp: ivr_cred_def dest!: ivc_pop_Some split: option.splits prod.splits)
+
+datatype ('l, 't, 'u) ivcres = IvCConf | IvCRej
+  | IvCRed \<open>'l \<times> ('l, 't) rhs\<close> \<open>nat \<times> ivf\<close> \<open>'u ivc\<close> \<open>'u list\<close>
+
+primrec ivc_res :: \<open>('l, 't, 'u) ivcres \<Rightarrow> ('l, 't) ivsres\<close> where
+  \<open>ivc_res IvCConf = IvConf\<close>
+| \<open>ivc_res IvCRej = IvRej\<close>
+| \<open>ivc_res (IvCRed pr h r us) = IvRed pr (h # ivc_gs r)\<close>
+
+fun ivr_cscan :: \<open>('l, 't) vktab \<Rightarrow> 'u ivc \<Rightarrow> (nat \<times> nat) list \<Rightarrow> nat \<Rightarrow> ivf \<Rightarrow>
+    (nat \<times> nat \<times> ('l \<times> ('l, 't) rhs)) list \<Rightarrow> ('l, 't, 'u) ivcres\<close> where
+  \<open>ivr_cscan K c w j g [] = IvCRej\<close>
+| \<open>ivr_cscan K c w j g ((s, b, pr) # cs) = (let X = ivf_get g s in
+     if ivr_ne X \<and> ivr_lic (k_v K) j w s X
+     then (case ivr_cred K c X b (snd pr) of None \<Rightarrow> ivr_cscan K c w j g cs
+       | Some (h, r, us) \<Rightarrow> if list_ex (\<lambda>(s, b, pr). ivr_live K j g w s \<and>
+           ivr_cred K c (ivf_get g s) b (snd pr) \<noteq> None) cs
+                    then IvCConf else IvCRed pr h r us)
+     else ivr_cscan K c w j g cs)\<close>
+
+lemma ivr_cscan: \<open>ivc_res (ivr_cscan K c w j g cs) = ivr_scan K (ivc_gs c) w j g cs\<close>
+proof (induction cs)
+  case (Cons x cs)
+  obtain s b pr where x: \<open>x = (s, b, pr)\<close> by (cases x)
+  have n: \<open>ivr_red K (ivc_gs c) g s b pr = None \<longleftrightarrow> ivr_cred K c (ivf_get g s) b (snd pr) = None\<close> for s b pr
+    by (simp add: ivr_cred)
+  have ex: \<open>list_ex (\<lambda>(s, b, pr). ivr_live K j g w s \<and> ivr_red K (ivc_gs c) g s b pr \<noteq> None) cs =
+      list_ex (\<lambda>(s, b, pr). ivr_live K j g w s \<and> ivr_cred K c (ivf_get g s) b (snd pr) \<noteq> None) cs\<close>
+    by (induction cs) (auto simp: n simp del: not_None_eq)
+  show ?case
+    using Cons.IH unfolding x ivr_cscan.simps ivr_scan.simps ex ivr_cred
+    by (auto simp: ivr_live_def Let_def split: option.split)
+qed simp
+
+lemma ivr_cscan_us:
+  \<open>ivr_cscan K c w j g cs = IvCRed pr h r us \<Longrightarrow>
+     us = rev (take (length (snd pr)) (ivc_us c)) \<and> ivc_us r = drop (length (snd pr)) (ivc_us c)\<close>
+proof (induction cs)
+  case (Cons x cs)
+  obtain s b pr' where x: \<open>x = (s, b, pr')\<close> by (cases x)
+  show ?case
+    using Cons by (auto simp: x Let_def dest: ivr_cred_us split: if_splits option.splits prod.splits)
+qed simp
+
+definition ivr_crun :: \<open>('l, 't) vktab \<Rightarrow> (('t, 'ch, 'm) token_scheme \<Rightarrow> 'u) \<Rightarrow> ('l \<Rightarrow> 'u list \<Rightarrow> 'u) \<Rightarrow>
+    'u ivc \<Rightarrow> (nat \<times> nat) list \<Rightarrow> ('m, 'ch, 't) tword \<Rightarrow> 'u option option\<close> where
+  \<open>ivr_crun K Lf Nd c w v = ivr_grun K Lf Nd (ivc_gs c) w v (ivc_us c)\<close>
+
+lemma ivr_crun_code [code]:
+  \<open>ivr_crun K Lf Nd c w v = (case ivc_top c of (j, g) \<Rightarrow>
+     if w = [] \<and> ivr_mem (v_ind0 (k_v K)) (ivf_get g (iget (v_fin (k_v K)) j 0))
+     then Some (case c of IvBot _ \<Rightarrow> None | IvCell _ u _ \<Rightarrow> Some u)
+     else (case ivr_shift K j g w of
+         Some h \<Rightarrow> ivr_crun K Lf Nd (IvCell h (Lf (hd v)) c) (tl w) (tl v)
+       | None \<Rightarrow> (case ivr_cscan K c w j g (iget (v_cp (k_v K)) j []) of
+           IvCConf \<Rightarrow> None
+         | IvCRej \<Rightarrow> Some None
+         | IvCRed pr h r us \<Rightarrow> ivr_crun K Lf Nd (IvCell h (Nd (fst pr) us) r) w v)))\<close>
+proof -
+  obtain j g where t: \<open>ivc_top c = (j, g)\<close> by (cases \<open>ivc_top c\<close>)
+  have u: \<open>(case ivc_us c of u # _ \<Rightarrow> Some u | [] \<Rightarrow> None) = (case c of IvBot _ \<Rightarrow> None | IvCell _ u _ \<Rightarrow> Some u)\<close>
+    by (cases c) simp_all
+  have sc: \<open>ivr_scan K (ivc_gs c) w j g cs = ivc_res (ivr_cscan K c w j g cs)\<close> for cs
+    by (simp add: ivr_cscan)
+  have l: \<open>ivr_crun K Lf Nd c w v = (if w = [] \<and> ivr_mem (v_ind0 (k_v K)) (ivf_get g (iget (v_fin (k_v K)) j 0))
+     then Some (case c of IvBot _ \<Rightarrow> None | IvCell _ u _ \<Rightarrow> Some u)
+     else (case ivr_shift K j g w of
+          Some h \<Rightarrow> ivr_grun K Lf Nd (h # ivc_gs c) (tl w) (tl v) (Lf (hd v) # ivc_us c)
+        | None \<Rightarrow> (case ivc_res (ivr_cscan K c w j g (iget (v_cp (k_v K)) j [])) of
+            IvConf \<Rightarrow> None
+          | IvRej \<Rightarrow> Some None
+          | IvRed pr gs' \<Rightarrow> ivr_grun K Lf Nd gs' w v
+              (Nd (fst pr) (rev (take (length (snd pr)) (ivc_us c))) # drop (length (snd pr)) (ivc_us c)))))\<close>
+    unfolding ivr_crun_def
+    by (subst ivr_grun.simps) (simp only: case_ivc_gs t prod.case u sc)
+  show ?thesis
+  proof (cases \<open>ivr_shift K j g w\<close>)
+    case (Some h)
+    then show ?thesis unfolding l t prod.case by (simp add: ivr_crun_def)
+  next
+    case sh: None
+    show ?thesis
+    proof (cases \<open>ivr_cscan K c w j g (iget (v_cp (k_v K)) j [])\<close>)
+      case (IvCRed pr h r us)
+      from ivr_cscan_us[OF this] have \<open>us = rev (take (length (snd pr)) (ivc_us c))\<close>
+        and \<open>ivc_us r = drop (length (snd pr)) (ivc_us c)\<close> by simp_all
+      with sh IvCRed show ?thesis unfolding l t prod.case by (simp add: ivr_crun_def)
+    qed (simp_all only: sh l t prod.case option.case ivcres.case ivc_res.simps ivsres.case)
+  qed
+qed
+
+text \<open>The frames and values of a run, as cells; the code of \<^const>\<open>ivr_grun\<close> runs on them.\<close>
+
+fun ivc_mk :: \<open>(nat \<times> ivf) list \<Rightarrow> 'u list \<Rightarrow> 'u ivc option\<close> where
+  \<open>ivc_mk [f] [] = Some (IvBot f)\<close>
+| \<open>ivc_mk (f # gs) (u # us) = map_option (IvCell f u) (ivc_mk gs us)\<close>
+| \<open>ivc_mk _ _ = None\<close>
+
+lemma ivc_mk: \<open>ivc_mk gs us = Some c \<Longrightarrow> ivc_gs c = gs \<and> ivc_us c = us\<close>
+  by (induction gs us arbitrary: c rule: ivc_mk.induct) auto
+
+lemma ivr_grun_code [code]:
+  \<open>ivr_grun K Lf Nd gs w v us = (case ivc_mk gs us of Some c \<Rightarrow> ivr_crun K Lf Nd c w v
+   | None \<Rightarrow> (if w = [] \<and> (case gs of [] \<Rightarrow> False
+       | (j, g) # _ \<Rightarrow> ivr_mem (v_ind0 (k_v K)) (ivf_get g (iget (v_fin (k_v K)) j 0)))
+     then Some (case us of u # _ \<Rightarrow> Some u | [] \<Rightarrow> None)
+     else (case gs of [] \<Rightarrow> Some None | (j, g) # _ \<Rightarrow>
+       (case ivr_shift K j g w of
+          Some h \<Rightarrow> ivr_grun K Lf Nd (h # gs) (tl w) (tl v) (Lf (hd v) # us)
+        | None \<Rightarrow> (case ivr_scan K gs w j g (iget (v_cp (k_v K)) j []) of
+            IvConf \<Rightarrow> None
+          | IvRej \<Rightarrow> Some None
+          | IvRed pr gs' \<Rightarrow> ivr_grun K Lf Nd gs' w v
+              (Nd (fst pr) (rev (take (length (snd pr)) us)) # drop (length (snd pr)) us))))))\<close>
+proof (cases \<open>ivc_mk gs us\<close>)
+  case (Some c)
+  with ivc_mk[OF Some] show ?thesis by (simp add: ivr_crun_def)
+next
+  case None
+  then show ?thesis by (subst ivr_grun.simps) simp
+qed
 
 subsection \<open>The code equations\<close>
 
