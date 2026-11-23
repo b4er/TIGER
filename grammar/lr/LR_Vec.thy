@@ -2793,10 +2793,14 @@ subsection \<open>Kernel-only frames\<close>
 text \<open>An entry of the successor tables names the kernel items of the target
   state, and \<^const>\<open>vkav\<close> pads them with an empty set for every other item.  The
   entries here keep the kernel items alone, with a plan of the target's items:
-  whether each is a kernel item, and its contributions, each from the rank of
-  its kernel item.  The tables come from \<^const>\<open>mk_vtab\<close>'s by a map.\<close>
+  for each the rank of its kernel item (past them all if it is none) and its
+  contributions, each from the rank of its kernel item.  The plan is an array, so
+  that one item's description is read without walking the items before it.  The
+  tables come from \<^const>\<open>mk_vtab\<close>'s by a map.\<close>
 
-type_synonym kentry = \<open>nat \<times> (nat \<times> irel) list \<times> (bool \<times> (nat \<times> eff) list) list\<close>
+type_synonym kplan = \<open>(nat \<times> (nat \<times> eff) list) iarray\<close>
+
+type_synonym kentry = \<open>nat \<times> (nat \<times> irel) list \<times> kplan\<close>
 
 datatype ('n, 't) vktab = VKTab
   (k_v: \<open>('n, 't) vtab\<close>)
@@ -2822,7 +2826,8 @@ definition krank :: \<open>'a option list \<Rightarrow> nat \<Rightarrow> nat\<c
 
 definition kconv :: \<open>('n, 't) vtab \<Rightarrow> nat \<times> (nat \<times> irel) option list \<Rightarrow> kentry\<close> where
   \<open>kconv V e = (case e of (j', km) \<Rightarrow> (j', ksome km,
-     map (\<lambda>(x, cs). (x \<noteq> None, map (\<lambda>(kk, e). (krank km kk, e)) cs)) (zip km (iget (v_ct V) j' []))))\<close>
+     IArray (map (\<lambda>(i, cs). (krank km i, map (\<lambda>(kk, e). (krank km kk, e)) cs))
+       (zip [0..<length km] (iget (v_ct V) j' [])))))\<close>
 
 definition kmap :: \<open>('n, 't) vtab \<Rightarrow> (nat \<times> (nat \<times> irel) option list) option iarray iarray \<Rightarrow>
     kentry option iarray iarray\<close> where
@@ -2835,24 +2840,12 @@ lemma iget_kmap:
   \<open>iget (iget (kmap V T) j (IArray [])) a None = map_option (kconv V) (iget (iget T j (IArray [])) a None)\<close>
   by (cases T) (auto simp: kmap_def iget_def)
 
-fun vfill_p :: \<open>indrep list \<Rightarrow> (bool \<times> (nat \<times> eff) list) list \<Rightarrow> indrep list \<Rightarrow> indrep list\<close> where
-  \<open>vfill_p kav [] Rs = []\<close>
-| \<open>vfill_p kav ((b, cs) # pl) Rs = (if b
-     then (case Rs of [] \<Rightarrow> vfill_row kav cs (FinRep []) # vfill_p kav pl []
-           | R # Rs' \<Rightarrow> vfill_row kav cs R # vfill_p kav pl Rs')
-     else vfill_row kav cs (FinRep []) # vfill_p kav pl Rs)\<close>
+definition vfill_p :: \<open>indrep list \<Rightarrow> kplan \<Rightarrow> indrep list\<close> where
+  \<open>vfill_p kav P = map (\<lambda>(k, cs). vfill_row kav cs (getR kav k)) (IArray.list_of P)\<close>
 
 definition vgo_k :: \<open>kentry \<Rightarrow> indrep list \<Rightarrow> indrep \<Rightarrow> (nat \<times> indrep list) option\<close> where
   \<open>vgo_k e av RA = (case e of (j', ks, pl) \<Rightarrow> let kav = map (\<lambda>(ps, q). cpre q RA (getR av ps)) ks in
-     if list_ex irep_nonempty kav then Some (j', vfill_p kav pl kav) else None)\<close>
-
-lemma vfill_p_zip:
-  \<open>vfill_p K (map (\<lambda>(x, cs). (x \<noteq> None, g cs)) (zip km cts)) (map f (ksome km)) =
-     map (\<lambda>(x, cs). vfill_row K (g cs) (case_option (FinRep []) f x)) (zip km cts)\<close>
-proof (induction km arbitrary: cts)
-  case (Cons x km)
-  then show ?case by (cases cts; cases x) auto
-qed simp
+     if list_ex irep_nonempty kav then Some (j', vfill_p kav pl) else None)\<close>
 
 lemma length_ksome: \<open>length (ksome xs) \<le> length xs\<close>
   by (induction xs rule: ksome.induct) auto
@@ -2878,6 +2871,17 @@ next
   qed
 qed
 
+lemma vfill_p_zip:
+  \<open>vfill_p (map f (ksome km)) (IArray (map (\<lambda>(i, cs). (krank km i, g cs)) (zip [0..<length km] cts))) =
+     map (\<lambda>(x, cs). vfill_row (map f (ksome km)) (g cs) (case_option (FinRep []) f x)) (zip km cts)\<close>
+proof -
+  have r: \<open>getR (map f (ksome km)) (krank km i) = case_option (FinRep []) f (km ! i)\<close>
+    if \<open>i < length km\<close> for i
+    using krank_getR[of f km i] that by (simp add: getR_def)
+  show ?thesis
+    unfolding vfill_p_def by (rule nth_equalityI) (auto simp: r)
+qed
+
 lemma vfill_row_cong:
   \<open>(\<And>kk. getR K kk = getR K' (r kk)) \<Longrightarrow> vfill_row K cs acc = vfill_row K' (map (\<lambda>(kk, e). (r kk, e)) cs) acc\<close>
   by (induction K cs acc rule: vfill_row.induct) (simp_all add: Let_def)
@@ -2896,8 +2900,8 @@ proof (cases e)
     unfolding vfill_row_fold[symmetric] by (rule vfill_row_cong[OF krank_getR])
   have fill: \<open>vfill cts (map (case_option (FinRep []) ?f) km) =
       vfill_p (map ?f (ksome km))
-        (map (\<lambda>(x, cs). (x \<noteq> None, map (\<lambda>(kk, e). (krank km kk, e)) cs)) (zip km cts))
-        (map ?f (ksome km))\<close> for cts
+        (IArray (map (\<lambda>(i, cs). (krank km i, map (\<lambda>(kk, e). (krank km kk, e)) cs))
+          (zip [0..<length km] cts)))\<close> for cts
     unfolding vfill_p_zip vfill_def zip_map1 map_map
     by (rule map_cong) (auto simp: row)
   show ?thesis
@@ -3098,11 +3102,11 @@ text \<open>A frame built by \<^const>\<open>vgo_k\<close> fills the set of ever
   \<^const>\<open>vrun_k\<close> over the filled ones (\<open>vrun_k_lazy\<close>), and it is the code of
   \<^const>\<open>vrun_k\<close>.\<close>
 
-datatype lframe = LEager \<open>indrep list\<close> | LLazy \<open>indrep list\<close> \<open>(bool \<times> (nat \<times> eff) list) list\<close>
+datatype lframe = LEager \<open>indrep list\<close> | LLazy \<open>indrep list\<close> kplan
 
 fun lf_av :: \<open>lframe \<Rightarrow> indrep list\<close> where
   \<open>lf_av (LEager av) = av\<close>
-| \<open>lf_av (LLazy kav pl) = vfill_p kav pl kav\<close>
+| \<open>lf_av (LLazy kav pl) = vfill_p kav pl\<close>
 
 type_synonym lframes = \<open>(nat \<times> lframe) list\<close>
 
@@ -3113,26 +3117,18 @@ lemma lfs_simps [simp]: \<open>lfs [] = []\<close> \<open>lfs ((j, f) # fs) = (j
   \<open>drop n (lfs fs) = lfs (drop n fs)\<close>
   by (simp_all add: lfs_def drop_map)
 
-text \<open>The set of the \<open>s\<close>-th item of \<^term>\<open>vfill_p kav pl Rs\<close>, filled alone.\<close>
+text \<open>The set of the \<open>s\<close>-th item of \<^term>\<open>vfill_p kav P\<close>, filled alone.\<close>
 
-fun vlitem :: \<open>indrep list \<Rightarrow> (bool \<times> (nat \<times> eff) list) list \<Rightarrow> indrep list \<Rightarrow> nat \<Rightarrow> indrep\<close> where
-  \<open>vlitem kav [] Rs s = FinRep []\<close>
-| \<open>vlitem kav ((b, cs) # pl) Rs s = (case s of
-     0 \<Rightarrow> (if b then (case Rs of [] \<Rightarrow> vfill_row kav cs (FinRep []) | R # _ \<Rightarrow> vfill_row kav cs R)
-          else vfill_row kav cs (FinRep []))
-   | Suc s' \<Rightarrow> vlitem kav pl (if b then tl Rs else Rs) s')\<close>
+definition vlitem :: \<open>indrep list \<Rightarrow> kplan \<Rightarrow> nat \<Rightarrow> indrep\<close> where
+  \<open>vlitem kav P s = (if s < IArray.length P
+     then (case P !! s of (k, cs) \<Rightarrow> vfill_row kav cs (getR kav k)) else FinRep [])\<close>
 
-lemma vlitem_getR: \<open>vlitem kav pl Rs s = getR (vfill_p kav pl Rs) s\<close>
-proof (induction pl arbitrary: Rs s)
-  case (Cons p pl)
-  obtain b cs where p: \<open>p = (b, cs)\<close> by (cases p)
-  show ?case
-    using Cons.IH by (cases s; cases b; cases Rs) (simp_all add: p getR_code)
-qed (simp add: getR_code)
+lemma vlitem_getR: \<open>vlitem kav P s = getR (vfill_p kav P) s\<close>
+  by (cases P) (simp add: vlitem_def vfill_p_def getR_def split: prod.split)
 
 fun lget :: \<open>lframe \<Rightarrow> nat \<Rightarrow> indrep\<close> where
   \<open>lget (LEager av) s = getR av s\<close>
-| \<open>lget (LLazy kav pl) s = vlitem kav pl kav s\<close>
+| \<open>lget (LLazy kav pl) s = vlitem kav pl s\<close>
 
 lemma lget_getR: \<open>lget f s = getR (lf_av f) s\<close>
   by (cases f) (simp_all add: vlitem_getR)
@@ -3835,36 +3831,27 @@ fun ivr_row :: \<open>ivr list \<Rightarrow> (nat \<times> eff) list \<Rightarro
 | \<open>ivr_row kav ((kk, e) # cs) acc = ivr_row kav cs (let R = ivr_get kav kk in
      if ivr_ne R then ivr_union acc (ivr_eapp e R) else acc)\<close>
 
-fun ivr_fill_p :: \<open>ivr list \<Rightarrow> (bool \<times> (nat \<times> eff) list) list \<Rightarrow> ivr list \<Rightarrow> ivr list\<close> where
-  \<open>ivr_fill_p kav [] Rs = []\<close>
-| \<open>ivr_fill_p kav ((b, cs) # pl) Rs = (if b
-     then (case Rs of [] \<Rightarrow> ivr_row kav cs ivr_empty # ivr_fill_p kav pl []
-           | R # Rs' \<Rightarrow> ivr_row kav cs R # ivr_fill_p kav pl Rs')
-     else ivr_row kav cs ivr_empty # ivr_fill_p kav pl Rs)\<close>
+definition ivr_fill_p :: \<open>ivr list \<Rightarrow> kplan \<Rightarrow> ivr list\<close> where
+  \<open>ivr_fill_p kav P = map (\<lambda>(k, cs). ivr_row kav cs (ivr_get kav k)) (IArray.list_of P)\<close>
 
-fun ivr_item :: \<open>ivr list \<Rightarrow> (bool \<times> (nat \<times> eff) list) list \<Rightarrow> ivr list \<Rightarrow> nat \<Rightarrow> ivr\<close> where
-  \<open>ivr_item kav [] Rs s = ivr_empty\<close>
-| \<open>ivr_item kav ((b, cs) # pl) Rs s = (case s of
-     0 \<Rightarrow> (if b then (case Rs of [] \<Rightarrow> ivr_row kav cs ivr_empty | R # _ \<Rightarrow> ivr_row kav cs R)
-          else ivr_row kav cs ivr_empty)
-   | Suc s' \<Rightarrow> ivr_item kav pl (if b then tl Rs else Rs) s')\<close>
+text \<open>One item of a lazy frame: one read of the plan, then its row.\<close>
 
-lemma ivr_item_get: \<open>ivr_item kav pl Rs s = ivr_get (ivr_fill_p kav pl Rs) s\<close>
-proof (induction pl arbitrary: Rs s)
-  case (Cons p pl)
-  obtain b cs where p: \<open>p = (b, cs)\<close> by (cases p)
-  show ?case using Cons.IH by (cases s; cases b; cases Rs) (simp_all add: p ivr_get_code)
-qed (simp add: ivr_get_code)
+definition ivr_item :: \<open>ivr list \<Rightarrow> kplan \<Rightarrow> nat \<Rightarrow> ivr\<close> where
+  \<open>ivr_item kav P s = (if s < IArray.length P
+     then (case P !! s of (k, cs) \<Rightarrow> ivr_row kav cs (ivr_get kav k)) else ivr_empty)\<close>
 
-datatype ivf = IvEager \<open>ivr list\<close> | IvLazy \<open>ivr list\<close> \<open>(bool \<times> (nat \<times> eff) list) list\<close>
+lemma ivr_item_get: \<open>ivr_item kav P s = ivr_get (ivr_fill_p kav P) s\<close>
+  by (cases P) (simp add: ivr_item_def ivr_fill_p_def ivr_get_def split: prod.split)
+
+datatype ivf = IvEager \<open>ivr list\<close> | IvLazy \<open>ivr list\<close> kplan
 
 fun ivf_av :: \<open>ivf \<Rightarrow> ivr list\<close> where
   \<open>ivf_av (IvEager av) = av\<close>
-| \<open>ivf_av (IvLazy kav pl) = ivr_fill_p kav pl kav\<close>
+| \<open>ivf_av (IvLazy kav pl) = ivr_fill_p kav pl\<close>
 
 fun ivf_get :: \<open>ivf \<Rightarrow> nat \<Rightarrow> ivr\<close> where
   \<open>ivf_get (IvEager av) s = ivr_get av s\<close>
-| \<open>ivf_get (IvLazy kav pl) s = ivr_item kav pl kav s\<close>
+| \<open>ivf_get (IvLazy kav pl) s = ivr_item kav pl s\<close>
 
 lemma ivf_get: \<open>ivf_get g s = ivr_get (ivf_av g) s\<close>
   by (cases g) (simp_all add: ivr_item_get)
@@ -3887,29 +3874,10 @@ proof (induction cs arbitrary: acc acc')
 qed simp
 
 lemma fill_iv:
-  \<open>map irep_set kav = map ivr_set kv \<Longrightarrow> map irep_set Rs = map ivr_set Rs' \<Longrightarrow>
-     map irep_set (vfill_p kav pl Rs) = map ivr_set (ivr_fill_p kv pl Rs')\<close>
-proof (induction pl arbitrary: Rs Rs')
-  case (Cons p pl)
-  obtain b cs where p: \<open>p = (b, cs)\<close> by (cases p)
-  have e: \<open>irep_set (FinRep []) = ivr_set ivr_empty\<close> by simp
-  note row = row_iv[OF Cons.prems(1)]
-  show ?case
-  proof (cases Rs)
-    case Nil
-    with Cons.prems(2) have \<open>Rs' = []\<close> by simp
-    with Nil show ?thesis
-      using Cons.IH[OF Cons.prems(1), of \<open>[]\<close> \<open>[]\<close>] row[OF e] by (simp add: p)
-  next
-    case (Cons R Rs\<^sub>1)
-    with Cons.prems(2) obtain R' Rs\<^sub>1' where Rs': \<open>Rs' = R' # Rs\<^sub>1'\<close>
-        and h: \<open>irep_set R = ivr_set R'\<close> and t: \<open>map irep_set Rs\<^sub>1 = map ivr_set Rs\<^sub>1'\<close>
-      by (cases Rs') auto
-    show ?thesis
-      using Cons.IH[OF Cons.prems(1) t] Cons.IH[OF Cons.prems(1) Cons.prems(2)] row[OF h] row[OF e]
-      by (cases b) (simp_all add: p Cons Rs')
-  qed
-qed simp
+  assumes k: \<open>map irep_set kav = map ivr_set kv\<close>
+  shows \<open>map irep_set (vfill_p kav P) = map ivr_set (ivr_fill_p kv P)\<close>
+  unfolding vfill_p_def ivr_fill_p_def map_map
+  by (rule map_cong) (auto intro!: row_iv[OF k] getR_iv[OF k])
 
 definition ivr_frel :: \<open>indrep list \<Rightarrow> ivf \<Rightarrow> bool\<close> where
   \<open>ivr_frel av g \<longleftrightarrow> map irep_set av = map ivr_set (ivf_av g)\<close>
@@ -3951,8 +3919,8 @@ proof -
   have k: \<open>map irep_set ?kav = map ivr_set ?kv\<close>
     by (auto simp: ivr_frel_get[OF fr] ra)
   have ex: \<open>list_ex irep_nonempty ?kav = list_ex ivr_ne ?kv\<close> by (rule list_ex_ne_iv[OF k])
-  have f: \<open>ivr_frel (vfill_p ?kav pl ?kav) (IvLazy ?kv pl)\<close>
-    unfolding ivr_frel_def ivf_av.simps by (rule fill_iv[OF k k])
+  have f: \<open>ivr_frel (vfill_p ?kav pl) (IvLazy ?kv pl)\<close>
+    unfolding ivr_frel_def ivf_av.simps by (rule fill_iv[OF k])
   show ?thesis
     unfolding e vgo_k_def ivr_go_def Let_def prod.case ex using f by simp
 qed
